@@ -1,0 +1,43 @@
+# KI6CR Inventory System - Security Settings
+# Place this file in your /projects/ directory
+
+# Deny access to sensitive files
+<Files "config.php">
+    Require all denied
+</Files>
+
+<Files "database_schema.sql">
+    Require all denied
+</Files>
+
+<Files ".htaccess">
+    Require all denied
+</Files>
+
+# Optional: Force HTTPS (uncomment if you have SSL certificate)
+# RewriteEngine On
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Prevent directory browsing
+Options -Indexes
+
+# Set default document
+DirectoryIndex index.php
+
+# Disable PHP in uploads directory if you add file uploads later
+# <Directory "uploads">
+#     php_flag engine off
+# </Directory>
+
+# Security headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>
+
+# Hide PHP version
+<IfModule mod_headers.c>
+    Header unset X-Powered-By
+</IfModule>
