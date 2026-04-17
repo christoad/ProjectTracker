@@ -82,13 +82,14 @@ try {
     
     // Insert order
     $stmt = $db->prepare("
-        INSERT INTO orders 
-        (order_number, project_id, customer_name, customer_email, customer_phone, 
-         customer_callsign, quantity, price_paid, order_date, status, shipping_address, 
-         notes, source, inventory_deducted) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, 'web_form', 0)
+        INSERT INTO orders
+        (order_number, project_id, customer_name, customer_email, customer_phone,
+         customer_callsign, quantity, price_paid, order_date, status, shipping_address,
+         ship_street, ship_street2, ship_city, ship_state, ship_zip,
+         notes, source, inventory_deducted)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?, ?, ?, ?, ?, 'web_form', 0)
     ");
-    
+
     $stmt->execute([
         $order_number,
         $project_id,
@@ -99,6 +100,11 @@ try {
         $quantity,
         $price_paid,
         $shipping_address,
+        $street_address,
+        $address_line_2 ?: null,
+        $city,
+        $state,
+        $postal_code,
         $notes
     ]);
     

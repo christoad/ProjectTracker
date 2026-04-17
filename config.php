@@ -17,6 +17,15 @@ define('DB_NAME',    $_env['DB_NAME']);
 define('DB_USER',    $_env['DB_USER']);
 define('DB_PASS',    $_env['DB_PASS']);
 define('DB_CHARSET', 'utf8mb4');
+define('USPS_CLIENT_ID',     $_env['USPS_CLIENT_ID'] ?? '');
+define('USPS_CLIENT_SECRET', $_env['USPS_CLIENT_SECRET'] ?? '');
+define('ORIGIN_ZIP',         $_env['ORIGIN_ZIP'] ?? '');
+define('FROM_NAME',    $_env['FROM_NAME']    ?? '');
+define('FROM_COMPANY', $_env['FROM_COMPANY'] ?? '');
+define('FROM_STREET',  $_env['FROM_STREET']  ?? '');
+define('FROM_CITY',    $_env['FROM_CITY']    ?? '');
+define('FROM_STATE',   $_env['FROM_STATE']   ?? '');
+define('FROM_ZIP',     $_env['FROM_ZIP']     ?? '');
 
 // Application Settings
 define('APP_NAME', 'KI6CR Inventory Manager');

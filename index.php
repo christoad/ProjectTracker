@@ -999,7 +999,7 @@
                 const tbody = document.querySelector('#ordersTable tbody');
                 tbody.innerHTML = orders.map(o => `
                     <tr>
-                        <td><strong>${o.order_number}</strong></td>
+                        <td><a href="order_detail.php?id=${o.id}" style="color:var(--accent-primary);font-weight:bold;text-decoration:none;">${o.order_number}</a></td>
                         <td>${o.order_date}</td>
                         <td>${o.customer_name}</td>
                         <td>${o.customer_callsign || '-'}</td>
@@ -1008,7 +1008,7 @@
                         <td>$${parseFloat(o.price_paid).toFixed(2)}</td>
                         <td><span class="badge badge-${getStatusColor(o.status)}">${o.status}</span></td>
                         <td>
-                            <button class="btn btn-small" onclick="editOrder(${o.id})">Edit</button>
+                            <a href="order_detail.php?id=${o.id}" class="btn btn-small">Open</a>
                             <button class="btn btn-small btn-danger" onclick="deleteOrder(${o.id})">Delete</button>
                         </td>
                     </tr>
@@ -1093,6 +1093,19 @@
                             </div>
                         </div>
                         <div class="form-group">
+                            <label class="form-label">Packed Ship Weight (oz)</label>
+                            <input type="number" id="projectShipWeight" class="form-input" value="${project.ship_weight_oz || ''}" step="0.1" min="0" placeholder="e.g. 8.5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Package Dimensions (inches) — L × W × H</label>
+                            <div class="grid-2" style="grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+                                <input type="number" id="projectPkgLength" class="form-input" value="${project.pkg_length || ''}" step="0.1" min="0" placeholder="Length">
+                                <input type="number" id="projectPkgWidth"  class="form-input" value="${project.pkg_width  || ''}" step="0.1" min="0" placeholder="Width">
+                                <input type="number" id="projectPkgHeight" class="form-input" value="${project.pkg_height || ''}" step="0.1" min="0" placeholder="Height">
+                            </div>
+                            <small style="color: var(--text-secondary); font-size: 0.875rem;">Weight and dimensions required for USPS rate estimates</small>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label">Project Image</label>
                             <input type="file" id="projectImage" class="form-input" accept="image/*">
                             ${project.image_path ? `<div style="margin-top: 0.5rem;"><img src="${project.image_path}" style="max-width: 200px; border: 1px solid var(--border-color);"></div>` : ''}
@@ -1114,6 +1127,10 @@
                 formData.append('description', document.getElementById('projectDescription').value);
                 formData.append('retail_price', document.getElementById('projectRetailPrice').value);
                 formData.append('status', document.getElementById('projectStatus').value);
+                formData.append('ship_weight_oz', document.getElementById('projectShipWeight').value);
+                formData.append('pkg_length',     document.getElementById('projectPkgLength').value);
+                formData.append('pkg_width',       document.getElementById('projectPkgWidth').value);
+                formData.append('pkg_height',      document.getElementById('projectPkgHeight').value);
                 
                 const imageFile = document.getElementById('projectImage').files[0];
                 if (imageFile) {
@@ -1164,6 +1181,7 @@
                                             ${p.current_stock}
                                         </td>
                                         <td>
+                                            <button class="btn btn-small" onclick="viewPart(${p.part_id})">View</button>
                                             <button class="btn btn-small" onclick="editProjectPart(${project.id}, ${p.id}, ${p.part_id}, ${p.quantity_required})">Edit</button>
                                             <button class="btn btn-small btn-danger" onclick="removeProjectPart(${p.id}, ${project.id})">Remove</button>
                                         </td>
@@ -1701,6 +1719,7 @@
                                             <td>$${parseFloat(c.total_cost).toFixed(2)}</td>
                                             <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${c.notes || '-'}</td>
                                             <td>
+                                                <button class="btn btn-small" onclick="cloneCheckin(${c.id}, ${part.id})">Clone</button>
                                                 <button class="btn btn-small" onclick="editCheckin(${c.id}, ${part.id})">Edit</button>
                                                 <button class="btn btn-small btn-danger" onclick="deleteCheckin(${c.id}, ${part.id})">Delete</button>
                                             </td>
@@ -1954,12 +1973,20 @@
                 document.getElementById('editCheckinForm').addEventListener('submit', async (e) => {
                     e.preventDefault();
                     
+                    const unitCost = document.getElementById('editCheckinUnitCost').value;
+                    const grossTotal = document.getElementById('editCheckinGrossTotal').value;
+                    if (!unitCost && !grossTotal) {
+                        alert('Please enter either Unit Cost or Gross Total');
+                        return;
+                    }
+
                     const formData = new FormData();
                     formData.append('action', 'edit_checkin');
                     formData.append('id', checkinId);
                     formData.append('part_id', partId);
                     formData.append('quantity', document.getElementById('editCheckinQty').value);
-                    formData.append('gross_total', document.getElementById('editCheckinGrossTotal').value);
+                    if (unitCost) formData.append('unit_cost', unitCost);
+                    if (grossTotal) formData.append('gross_total', grossTotal);
                     formData.append('supplier_name', document.getElementById('editCheckinSupplier').value);
                     formData.append('purchase_date', document.getElementById('editCheckinDate').value);
                     formData.append('notes', document.getElementById('editCheckinNotes').value);
@@ -2104,6 +2131,114 @@
             });
         }
 
+        async function cloneCheckin(checkinId, partId) {
+            try {
+                const response = await fetch(`api.php?action=get_part&id=${partId}`);
+                const part = await response.json();
+                const checkin = part.checkins.find(c => c.id === checkinId);
+                if (!checkin) { alert('Could not load check-in data'); return; }
+
+                const modal = createModal(
+                    `Clone Check-in: ${part.part_name}`,
+                    `
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                            Cloned from ${checkin.purchase_date} — edit any fields before saving.
+                        </p>
+                        <form id="cloneCheckinForm">
+                            <div class="form-group">
+                                <label class="form-label">Quantity Received</label>
+                                <input type="number" id="cloneCheckinQty" class="form-input" min="1" value="${checkin.quantity}" required>
+                            </div>
+                            <div style="background: #f0f9ff; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                                <strong style="color: var(--accent-primary);">💡 Enter EITHER unit cost OR gross total:</strong>
+                            </div>
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label class="form-label">Unit Cost ($)</label>
+                                    <input type="number" id="cloneCheckinUnitCost" class="form-input" step="0.0001" min="0" value="${parseFloat(checkin.unit_cost).toFixed(4)}">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Gross Total ($)</label>
+                                    <input type="number" id="cloneCheckinGrossTotal" class="form-input" step="0.01" min="0" value="${parseFloat(checkin.total_cost).toFixed(2)}">
+                                </div>
+                            </div>
+                            <div id="cloneCalcDisplay" style="background: #ecfdf5; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
+                                <strong>Unit Cost: <span id="cloneCalcValue">$${parseFloat(checkin.unit_cost).toFixed(4)}</span></strong>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Supplier Name</label>
+                                <input type="text" id="cloneCheckinSupplier" class="form-input" value="${(checkin.supplier_name || '').replace(/"/g, '&quot;')}">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Purchase Date</label>
+                                <input type="date" id="cloneCheckinDate" class="form-input" value="${new Date().toISOString().split('T')[0]}" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Notes</label>
+                                <textarea id="cloneCheckinNotes" class="form-textarea">${checkin.notes || ''}</textarea>
+                            </div>
+                            <div class="flex flex-gap">
+                                <button type="submit" class="btn btn-primary">Check-in</button>
+                                <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
+                            </div>
+                        </form>
+                    `
+                );
+
+                const qtyInput = document.getElementById('cloneCheckinQty');
+                const unitCostInput = document.getElementById('cloneCheckinUnitCost');
+                const grossTotalInput = document.getElementById('cloneCheckinGrossTotal');
+                const calcDisplay = document.getElementById('cloneCalcDisplay');
+                const calcValue = document.getElementById('cloneCalcValue');
+
+                function updateCalc() {
+                    const qty = parseFloat(qtyInput.value) || 0;
+                    const gross = parseFloat(grossTotalInput.value) || 0;
+                    const unit = parseFloat(unitCostInput.value) || 0;
+                    if (qty > 0 && gross > 0) {
+                        calcValue.textContent = '$' + (gross / qty).toFixed(4);
+                        calcDisplay.style.display = 'block';
+                    } else if (unit > 0) {
+                        calcValue.textContent = '$' + unit.toFixed(4);
+                        calcDisplay.style.display = 'block';
+                    } else {
+                        calcDisplay.style.display = 'none';
+                    }
+                }
+                qtyInput.addEventListener('input', updateCalc);
+                unitCostInput.addEventListener('input', () => { if (unitCostInput.value) grossTotalInput.value = ''; updateCalc(); });
+                grossTotalInput.addEventListener('input', () => { if (grossTotalInput.value) unitCostInput.value = ''; updateCalc(); });
+
+                document.getElementById('cloneCheckinForm').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const unitCost = unitCostInput.value;
+                    const grossTotal = grossTotalInput.value;
+                    if (!unitCost && !grossTotal) { alert('Please enter either Unit Cost or Gross Total'); return; }
+
+                    const formData = new FormData();
+                    formData.append('action', 'checkin_inventory');
+                    formData.append('part_id', partId);
+                    formData.append('quantity', qtyInput.value);
+                    if (unitCost) formData.append('unit_cost', unitCost);
+                    if (grossTotal) formData.append('gross_total', grossTotal);
+                    formData.append('supplier_name', document.getElementById('cloneCheckinSupplier').value);
+                    formData.append('purchase_date', document.getElementById('cloneCheckinDate').value);
+                    formData.append('notes', document.getElementById('cloneCheckinNotes').value);
+
+                    try {
+                        await fetch('api.php', { method: 'POST', body: formData });
+                        modal.remove();
+                        loadParts();
+                        loadDashboard();
+                    } catch (err) {
+                        alert('Error saving check-in');
+                    }
+                });
+            } catch (err) {
+                alert('Error loading check-in data');
+            }
+        }
+
         // Order Modal Functions
         async function openOrderModal(orderId = null) {
             // Ensure projects are loaded before opening modal
@@ -2188,6 +2323,16 @@
                             <input type="number" id="orderShippingCharge" class="form-input" value="${order.shipping_charge || 0}" step="0.01" min="0">
                             <small style="color: var(--text-secondary); font-size: 0.875rem;">Actual shipping cost paid for P&L tracking</small>
                         </div>
+                        <div class="form-group" style="background: var(--bg-light); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.75rem;">
+                            <label class="form-label">USPS Rate Estimate</label>
+                            <div class="flex flex-gap" style="align-items: flex-end;">
+                                <div style="flex: 1;">
+                                    <input type="text" id="rateDestZip" class="form-input" placeholder="Destination ZIP" maxlength="10" style="font-family: inherit;">
+                                </div>
+                                <button type="button" class="btn btn-secondary" onclick="lookupShippingRates()" style="white-space: nowrap;">Get USPS Rates</button>
+                            </div>
+                            <div id="shippingRatesResult" style="margin-top: 0.5rem;"></div>
+                        </div>
                         <div class="form-group">
                             <label class="form-label">Shipping Address</label>
                             <textarea id="orderAddress" class="form-textarea">${order.shipping_address || ''}</textarea>
@@ -2253,6 +2398,58 @@
                     alert('Error saving order');
                 }
             });
+        }
+
+        async function lookupShippingRates() {
+            const zip = document.getElementById('rateDestZip').value.trim();
+            const projectId = document.getElementById('orderProject').value;
+            const resultEl = document.getElementById('shippingRatesResult');
+
+            if (!projectId) {
+                resultEl.innerHTML = '<small style="color: var(--warning);">Select a project/kit first.</small>';
+                return;
+            }
+            if (!zip) {
+                resultEl.innerHTML = '<small style="color: var(--warning);">Enter a destination ZIP code.</small>';
+                return;
+            }
+
+            resultEl.innerHTML = '<small style="color: var(--text-secondary);">Fetching rates...</small>';
+
+            try {
+                const resp = await fetch(`api.php?action=get_shipping_rates&project_id=${encodeURIComponent(projectId)}&dest_zip=${encodeURIComponent(zip)}`);
+                const data = await resp.json();
+
+                if (data.error) {
+                    resultEl.innerHTML = `<small style="color: var(--danger);">${data.error}</small>`;
+                    return;
+                }
+
+                if (!data.rates || data.rates.length === 0) {
+                    resultEl.innerHTML = '<small style="color: var(--text-secondary);">No rates returned.</small>';
+                    return;
+                }
+
+                let html = `<small style="color: var(--text-secondary);">Weight: ${data.weight_oz} oz &nbsp;|&nbsp; ${data.origin_zip} → ${data.dest_zip}</small>`;
+                html += '<table style="width:100%; margin-top:0.4rem; font-size:0.85rem; border-collapse:collapse;">';
+                data.rates.forEach(r => {
+                    html += `<tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 0.25rem 0.5rem 0.25rem 0;">${r.service}</td>
+                        <td style="padding: 0.25rem; text-align:right; font-weight:bold;">$${r.rate.toFixed(2)}</td>
+                        <td style="padding: 0.25rem 0 0.25rem 0.5rem; text-align:right;">
+                            <button type="button" class="btn" style="padding: 0.15rem 0.5rem; font-size:0.8rem;"
+                                onclick="document.getElementById('orderShippingCharge').value='${r.rate.toFixed(2)}'; document.getElementById('shippingRatesResult').querySelectorAll('button').forEach(b=>b.style.fontWeight='normal'); this.style.fontWeight='bold'; this.textContent='Used';">
+                                Use
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+                html += '</table>';
+                resultEl.innerHTML = html;
+
+            } catch (err) {
+                resultEl.innerHTML = '<small style="color: var(--danger);">Request failed.</small>';
+            }
         }
 
         function editOrder(id) {

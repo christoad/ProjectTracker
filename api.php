@@ -11,6 +11,37 @@ header('Content-Type: application/json');
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $db = getDB();
 
+// USPS OAuth token helper — cached in session
+function getUSPSToken() {
+    if (!USPS_CLIENT_ID || !USPS_CLIENT_SECRET) {
+        return null;
+    }
+    if (!empty($_SESSION['usps_token']) && !empty($_SESSION['usps_token_expires']) && $_SESSION['usps_token_expires'] > time() + 60) {
+        return $_SESSION['usps_token'];
+    }
+    $ch = curl_init('https://apis.usps.com/oauth2/v3/token');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_POSTFIELDS     => http_build_query([
+            'grant_type'    => 'client_credentials',
+            'client_id'     => USPS_CLIENT_ID,
+            'client_secret' => USPS_CLIENT_SECRET,
+        ]),
+        CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($resp === false || $code !== 200) return null;
+    $data = json_decode($resp, true);
+    if (empty($data['access_token'])) return null;
+    $_SESSION['usps_token']         = $data['access_token'];
+    $_SESSION['usps_token_expires'] = time() + (int)($data['expires_in'] ?? 3600);
+    return $data['access_token'];
+}
+
 // Public actions (no auth required)
 if ($action === 'login') {
     $username = $_POST['username'] ?? '';
@@ -40,6 +71,115 @@ if ($action === 'logout') {
 
 if ($action === 'check_auth') {
     jsonResponse(['authenticated' => isLoggedIn()]);
+}
+
+// Public USPS actions (used by WP order form and order detail page without session)
+if ($action === 'validate_address') {
+    $token = getUSPSToken();
+    if (!$token) jsonResponse(['error' => 'USPS credentials not configured.'], 500);
+
+    $street = trim($_GET['street'] ?? '');
+    $street2 = trim($_GET['street2'] ?? '');
+    $city   = trim($_GET['city'] ?? '');
+    $state  = strtoupper(trim($_GET['state'] ?? ''));
+    $zip    = preg_replace('/\D/', '', $_GET['zip'] ?? '');
+
+    if (!$street || !$city || !$state) {
+        jsonResponse(['error' => 'Street, city, and state are required.'], 400);
+    }
+
+    $params = array_filter([
+        'streetAddress'   => $street,
+        'secondaryAddress'=> $street2,
+        'city'            => $city,
+        'state'           => $state,
+        'ZIPCode'         => $zip ?: null,
+    ]);
+
+    $ch = curl_init('https://apis.usps.com/addresses/v3/address?' . http_build_query($params));
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $token],
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $data = json_decode($resp, true);
+    if ($code !== 200) {
+        $msg = $data['detail'] ?? $data['title'] ?? 'Address not found or undeliverable.';
+        jsonResponse(['error' => 'USPS: ' . $msg], 400);
+    }
+    jsonResponse(['standardized' => $data['address'] ?? $data]);
+}
+
+// Public: rate lookup (also used by WP order form)
+if ($action === 'get_rates_public') {
+    $project_id = (int)($_GET['project_id'] ?? 0);
+    $dest_zip   = preg_replace('/\D/', '', $_GET['dest_zip'] ?? '');
+
+    if (strlen($dest_zip) < 5) jsonResponse(['error' => 'Invalid ZIP code.'], 400);
+    $dest_zip = substr($dest_zip, 0, 5);
+
+    if (!$project_id) jsonResponse(['error' => 'project_id required.'], 400);
+
+    $stmt = $db->prepare("SELECT ship_weight_oz, pkg_length, pkg_width, pkg_height FROM projects WHERE id = ? AND status = 'active'");
+    $stmt->execute([$project_id]);
+    $project = $stmt->fetch();
+
+    if (!$project || $project['ship_weight_oz'] === null) {
+        jsonResponse(['error' => 'No shipping weight set for this kit.'], 400);
+    }
+
+    // Reuse get_shipping_rates logic inline
+    $token = getUSPSToken();
+    if (!$token) jsonResponse(['error' => 'USPS credentials not configured.'], 500);
+
+    $weight_lbs = (float)$project['ship_weight_oz'] / 16.0;
+    $length = (float)($project['pkg_length'] ?? 6);
+    $width  = (float)($project['pkg_width']  ?? 4);
+    $height = (float)($project['pkg_height'] ?? 2);
+
+    $mail_classes = [
+        'GROUND_ADVANTAGE'      => 'Ground Advantage',
+        'PRIORITY_MAIL'         => 'Priority Mail',
+        'PRIORITY_MAIL_EXPRESS' => 'Priority Mail Express',
+    ];
+    $rates = [];
+    foreach ($mail_classes as $class_id => $class_label) {
+        $payload = json_encode([
+            'originZIPCode'               => ORIGIN_ZIP,
+            'destinationZIPCode'          => $dest_zip,
+            'weight'                      => round($weight_lbs, 4),
+            'length'                      => $length,
+            'width'                       => $width,
+            'height'                      => $height,
+            'mailClass'                   => $class_id,
+            'processingCategory'          => 'MACHINABLE',
+            'destinationEntryFacilityType'=> 'NONE',
+            'rateIndicator'               => 'SP',
+            'priceType'                   => 'RETAIL',
+            'mailingDate'                 => date('Y-m-d'),
+        ]);
+        $ch = curl_init('https://apis.usps.com/prices/v3/base-rates/search');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $token],
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($resp === false || $code >= 500) continue;
+        $data = json_decode($resp, true);
+        $price = $data['totalBasePrice'] ?? ($data[0]['totalBasePrice'] ?? null);
+        if ($price !== null) $rates[] = ['service' => $class_label, 'rate' => round((float)$price, 2)];
+    }
+    usort($rates, fn($a, $b) => $a['rate'] <=> $b['rate']);
+    jsonResponse(['rates' => $rates, 'weight_oz' => (float)$project['ship_weight_oz']]);
 }
 
 // All other actions require authentication
@@ -157,6 +297,10 @@ if ($action === 'save_project') {
     $description = $_POST['description'] ?? '';
     $status = $_POST['status'] ?? 'active';
     $retail_price = $_POST['retail_price'] ?? 0;
+    $ship_weight_oz = isset($_POST['ship_weight_oz']) && $_POST['ship_weight_oz'] !== '' ? (float)$_POST['ship_weight_oz'] : null;
+    $pkg_length     = isset($_POST['pkg_length'])     && $_POST['pkg_length']     !== '' ? (float)$_POST['pkg_length']     : null;
+    $pkg_width      = isset($_POST['pkg_width'])      && $_POST['pkg_width']      !== '' ? (float)$_POST['pkg_width']      : null;
+    $pkg_height     = isset($_POST['pkg_height'])     && $_POST['pkg_height']     !== '' ? (float)$_POST['pkg_height']     : null;
     $image_path = $_POST['image_path'] ?? null;
     
     // Handle image upload if present
@@ -181,16 +325,16 @@ if ($action === 'save_project') {
     
     if ($id) {
         if ($image_path) {
-            $stmt = $db->prepare("UPDATE projects SET project_name = ?, description = ?, status = ?, retail_price = ?, image_path = ? WHERE id = ?");
-            $stmt->execute([$name, $description, $status, $retail_price, $image_path, $id]);
+            $stmt = $db->prepare("UPDATE projects SET project_name = ?, description = ?, status = ?, retail_price = ?, ship_weight_oz = ?, pkg_length = ?, pkg_width = ?, pkg_height = ?, image_path = ? WHERE id = ?");
+            $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $image_path, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE projects SET project_name = ?, description = ?, status = ?, retail_price = ? WHERE id = ?");
-            $stmt->execute([$name, $description, $status, $retail_price, $id]);
+            $stmt = $db->prepare("UPDATE projects SET project_name = ?, description = ?, status = ?, retail_price = ?, ship_weight_oz = ?, pkg_length = ?, pkg_width = ?, pkg_height = ? WHERE id = ?");
+            $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $id]);
         }
         jsonResponse(['success' => true, 'id' => $id]);
     } else {
-        $stmt = $db->prepare("INSERT INTO projects (project_name, description, status, retail_price, image_path) VALUES (?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $description, $status, $retail_price, $image_path]);
+        $stmt = $db->prepare("INSERT INTO projects (project_name, description, status, retail_price, ship_weight_oz, pkg_length, pkg_width, pkg_height, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $image_path]);
         jsonResponse(['success' => true, 'id' => $db->lastInsertId()]);
     }
 }
@@ -611,9 +755,9 @@ if ($action === 'get_orders') {
 if ($action === 'get_order') {
     $id = $_GET['id'] ?? 0;
     $stmt = $db->prepare("
-        SELECT o.*, p.project_name 
-        FROM orders o 
-        JOIN projects p ON o.project_id = p.id 
+        SELECT o.*, p.project_name, p.ship_weight_oz, p.pkg_length, p.pkg_width, p.pkg_height, p.retail_price
+        FROM orders o
+        JOIN projects p ON o.project_id = p.id
         WHERE o.id = ?
     ");
     $stmt->execute([$id]);
@@ -637,6 +781,12 @@ if ($action === 'save_order') {
     $source = $_POST['source'] ?? 'manual';
     $tracking_number = $_POST['tracking_number'] ?? '';
     $shipping_charge = $_POST['shipping_charge'] ?? 0;
+    $ship_street  = $_POST['ship_street']  ?? null;
+    $ship_street2 = $_POST['ship_street2'] ?? null;
+    $ship_city    = $_POST['ship_city']    ?? null;
+    $ship_state   = $_POST['ship_state']   ?? null;
+    $ship_zip     = $_POST['ship_zip']     ?? null;
+    $mail_service = $_POST['mail_service'] ?? null;
     
     $db->beginTransaction();
     
@@ -650,8 +800,8 @@ if ($action === 'save_order') {
             $already_deducted = $old_order['inventory_deducted'];
             
             // Update order
-            $stmt = $db->prepare("UPDATE orders SET order_number = ?, project_id = ?, customer_name = ?, customer_email = ?, customer_phone = ?, customer_callsign = ?, quantity = ?, price_paid = ?, order_date = ?, status = ?, shipping_address = ?, notes = ?, source = ?, tracking_number = ?, shipping_charge = ? WHERE id = ?");
-            $stmt->execute([$order_number, $project_id, $customer_name, $customer_email, $customer_phone, $customer_callsign, $quantity, $price_paid, $order_date, $status, $shipping_address, $notes, $source, $tracking_number, $shipping_charge, $id]);
+            $stmt = $db->prepare("UPDATE orders SET order_number = ?, project_id = ?, customer_name = ?, customer_email = ?, customer_phone = ?, customer_callsign = ?, quantity = ?, price_paid = ?, order_date = ?, status = ?, shipping_address = ?, notes = ?, source = ?, tracking_number = ?, shipping_charge = ?, ship_street = ?, ship_street2 = ?, ship_city = ?, ship_state = ?, ship_zip = ?, mail_service = ? WHERE id = ?");
+            $stmt->execute([$order_number, $project_id, $customer_name, $customer_email, $customer_phone, $customer_callsign, $quantity, $price_paid, $order_date, $status, $shipping_address, $notes, $source, $tracking_number, $shipping_charge, $ship_street, $ship_street2, $ship_city, $ship_state, $ship_zip, $mail_service, $id]);
             
             // Handle inventory deduction
             $should_deduct = in_array($status, ['shipped', 'completed']);
@@ -674,8 +824,8 @@ if ($action === 'save_order') {
             // Insert new order
             $inventory_deducted = in_array($status, ['shipped', 'completed']) ? 1 : 0;
             
-            $stmt = $db->prepare("INSERT INTO orders (order_number, project_id, customer_name, customer_email, customer_phone, customer_callsign, quantity, price_paid, order_date, status, shipping_address, notes, source, inventory_deducted, tracking_number, shipping_charge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$order_number, $project_id, $customer_name, $customer_email, $customer_phone, $customer_callsign, $quantity, $price_paid, $order_date, $status, $shipping_address, $notes, $source, $inventory_deducted, $tracking_number, $shipping_charge]);
+            $stmt = $db->prepare("INSERT INTO orders (order_number, project_id, customer_name, customer_email, customer_phone, customer_callsign, quantity, price_paid, order_date, status, shipping_address, notes, source, inventory_deducted, tracking_number, shipping_charge, ship_street, ship_street2, ship_city, ship_state, ship_zip, mail_service) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$order_number, $project_id, $customer_name, $customer_email, $customer_phone, $customer_callsign, $quantity, $price_paid, $order_date, $status, $shipping_address, $notes, $source, $inventory_deducted, $tracking_number, $shipping_charge, $ship_street, $ship_street2, $ship_city, $ship_state, $ship_zip, $mail_service]);
             
             $new_id = $db->lastInsertId();
             
@@ -726,6 +876,287 @@ if ($action === 'delete_order') {
     $stmt = $db->prepare("DELETE FROM orders WHERE id = ?");
     $stmt->execute([$id]);
     jsonResponse(['success' => true]);
+}
+
+// USPS Shipping Rate Lookup (USPS Developer API — Domestic Prices v3)
+if ($action === 'get_shipping_rates') {
+    if (!USPS_CLIENT_ID || !USPS_CLIENT_SECRET || !ORIGIN_ZIP) {
+        jsonResponse(['error' => 'USPS_CLIENT_ID, USPS_CLIENT_SECRET, and ORIGIN_ZIP must be set in .env'], 500);
+    }
+
+    $project_id = (int)($_GET['project_id'] ?? 0);
+    $dest_zip   = preg_replace('/\D/', '', $_GET['dest_zip'] ?? '');
+
+    if (strlen($dest_zip) < 5) {
+        jsonResponse(['error' => 'Please enter a valid 5-digit destination ZIP code.'], 400);
+    }
+    $dest_zip = substr($dest_zip, 0, 5);
+
+    // Get project shipping dimensions
+    $stmt = $db->prepare("SELECT ship_weight_oz, pkg_length, pkg_width, pkg_height FROM projects WHERE id = ?");
+    $stmt->execute([$project_id]);
+    $project = $stmt->fetch();
+
+    if (!$project || $project['ship_weight_oz'] === null) {
+        jsonResponse(['error' => 'No shipping weight set for this project. Edit the project to add package dimensions.'], 400);
+    }
+
+    $weight_lbs = (float)$project['ship_weight_oz'] / 16.0;
+    $length     = (float)($project['pkg_length'] ?? 6);
+    $width      = (float)($project['pkg_width']  ?? 4);
+    $height     = (float)($project['pkg_height'] ?? 2);
+
+    // --- OAuth token ---
+    $token = getUSPSToken();
+    if (!$token) {
+        jsonResponse(['error' => 'Could not authenticate with USPS API. Check CLIENT_ID and CLIENT_SECRET in .env.'], 500);
+    }
+
+    // --- Query each mail class ---
+    $mail_classes = [
+        'GROUND_ADVANTAGE'        => 'Ground Advantage',
+        'PRIORITY_MAIL'           => 'Priority Mail',
+        'PRIORITY_MAIL_EXPRESS'   => 'Priority Mail Express',
+    ];
+
+    $rates = [];
+    $mailing_date = date('Y-m-d');
+
+    foreach ($mail_classes as $class_id => $class_label) {
+        $payload = json_encode([
+            'originZIPCode'               => ORIGIN_ZIP,
+            'destinationZIPCode'          => $dest_zip,
+            'weight'                      => round($weight_lbs, 4),
+            'length'                      => $length,
+            'width'                       => $width,
+            'height'                      => $height,
+            'mailClass'                   => $class_id,
+            'processingCategory'          => 'MACHINABLE',
+            'destinationEntryFacilityType'=> 'NONE',
+            'rateIndicator'               => 'SP',
+            'priceType'                   => 'RETAIL',
+            'mailingDate'                 => $mailing_date,
+        ]);
+
+        $ch = curl_init('https://apis.usps.com/prices/v3/base-rates/search');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $token,
+            ],
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($resp === false || $code >= 500) {
+            continue; // skip this class if unreachable
+        }
+
+        $data = json_decode($resp, true);
+
+        // The response contains a totalBasePrice or an array of rates
+        if (!empty($data['totalBasePrice'])) {
+            $rates[] = [
+                'service' => $class_label,
+                'rate'    => round((float)$data['totalBasePrice'], 2),
+            ];
+        } elseif (!empty($data[0]['totalBasePrice'])) {
+            // Some endpoints return an array
+            $rates[] = [
+                'service' => $class_label,
+                'rate'    => round((float)$data[0]['totalBasePrice'], 2),
+            ];
+        }
+        // 4xx (e.g. package too heavy for that class) — silently skip
+    }
+
+    if (empty($rates)) {
+        jsonResponse(['error' => 'No rates returned. Verify credentials, ZIP codes, and package dimensions.'], 400);
+    }
+
+    usort($rates, fn($a, $b) => $a['rate'] <=> $b['rate']);
+
+    jsonResponse([
+        'rates'      => $rates,
+        'weight_oz'  => (float)$project['ship_weight_oz'],
+        'origin_zip' => ORIGIN_ZIP,
+        'dest_zip'   => $dest_zip,
+    ]);
+}
+
+// Tracking status lookup
+if ($action === 'get_tracking') {
+    $token = getUSPSToken();
+    if (!$token) jsonResponse(['error' => 'USPS credentials not configured.'], 500);
+
+    $num = preg_replace('/\s+/', '', $_GET['tracking_number'] ?? '');
+    if (!$num) jsonResponse(['error' => 'No tracking number provided.'], 400);
+
+    $ch = curl_init('https://apis.usps.com/tracking/v3/tracking/' . urlencode($num) . '?expand=SUMMARY');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $token],
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $data = json_decode($resp, true);
+    if ($code !== 200) {
+        $msg = $data['detail'] ?? $data['title'] ?? 'Tracking info not found.';
+        jsonResponse(['error' => 'USPS: ' . $msg], 400);
+    }
+
+    $summary = $data['trackSummary'] ?? null;
+    $result = [
+        'status'      => $data['statusCategory'] ?? $data['statusSummary'] ?? 'Unknown',
+        'description' => $data['statusDescription'] ?? ($summary['EventDescription'] ?? ''),
+        'location'    => '',
+        'timestamp'   => '',
+    ];
+    if ($summary) {
+        $loc = trim(($summary['EventCity'] ?? '') . ', ' . ($summary['EventState'] ?? ''), ', ');
+        $result['location']  = $loc;
+        $result['timestamp'] = trim(($summary['EventDate'] ?? '') . ' ' . ($summary['EventTime'] ?? ''));
+    }
+    jsonResponse($result);
+}
+
+// Generate USPS shipping label
+if ($action === 'generate_label') {
+    $token = getUSPSToken();
+    if (!$token) jsonResponse(['error' => 'USPS credentials not configured.'], 500);
+
+    if (!FROM_STREET || FROM_STREET === 'your-street-address') {
+        jsonResponse(['error' => 'FROM_STREET not configured in .env — add your return address.'], 500);
+    }
+
+    $order_id  = (int)($_POST['order_id'] ?? 0);
+    $mail_class = $_POST['mail_class'] ?? 'GROUND_ADVANTAGE';
+    $to_name   = trim($_POST['to_name']   ?? '');
+    $to_street = trim($_POST['to_street'] ?? '');
+    $to_street2= trim($_POST['to_street2']?? '');
+    $to_city   = trim($_POST['to_city']   ?? '');
+    $to_state  = trim($_POST['to_state']  ?? '');
+    $to_zip    = preg_replace('/\D/', '', $_POST['to_zip'] ?? '');
+
+    if (!$to_street || !$to_city || !$to_state || strlen($to_zip) < 5) {
+        jsonResponse(['error' => 'Complete shipping address required to generate label.'], 400);
+    }
+
+    // Get project weight/dims for this order
+    $stmt = $db->prepare("SELECT p.ship_weight_oz, p.pkg_length, p.pkg_width, p.pkg_height FROM orders o JOIN projects p ON o.project_id = p.id WHERE o.id = ?");
+    $stmt->execute([$order_id]);
+    $pkg = $stmt->fetch();
+
+    if (!$pkg || !$pkg['ship_weight_oz']) {
+        jsonResponse(['error' => 'Package weight not set on this project. Edit the project to add shipping weight.'], 400);
+    }
+
+    $payload = [
+        'imageInfo' => ['imageType' => 'PDF', 'labelType' => '4X6LABEL'],
+        'toAddress' => array_filter([
+            'name'            => $to_name,
+            'streetAddress'   => $to_street,
+            'secondaryAddress'=> $to_street2 ?: null,
+            'city'            => $to_city,
+            'state'           => $to_state,
+            'ZIPCode'         => substr($to_zip, 0, 5),
+        ]),
+        'fromAddress' => array_filter([
+            'name'            => FROM_NAME,
+            'company'         => FROM_COMPANY ?: null,
+            'streetAddress'   => FROM_STREET,
+            'city'            => FROM_CITY,
+            'state'           => FROM_STATE,
+            'ZIPCode'         => FROM_ZIP,
+        ]),
+        'packageDescription' => [
+            'weight'                       => round((float)$pkg['ship_weight_oz'] / 16, 4),
+            'weightUOM'                    => 'lb',
+            'length'                       => (float)($pkg['pkg_length'] ?? 6),
+            'width'                        => (float)($pkg['pkg_width']  ?? 4),
+            'height'                       => (float)($pkg['pkg_height'] ?? 2),
+            'mailClass'                    => $mail_class,
+            'processingCategory'           => 'MACHINABLE',
+            'rateIndicator'                => 'SP',
+            'destinationEntryFacilityType' => 'NONE',
+        ],
+    ];
+
+    $ch = curl_init('https://apis.usps.com/labels/v3/label');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_TIMEOUT        => 20,
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $token],
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $data = json_decode($resp, true);
+    if ($code !== 200) {
+        $msg = $data['detail'] ?? $data['title'] ?? $data['message'] ?? 'Label generation failed.';
+        jsonResponse(['error' => 'USPS: ' . $msg], 400);
+    }
+
+    if (empty($data['labelImage'])) {
+        jsonResponse(['error' => 'USPS returned no label image. Additional account setup may be required.'], 500);
+    }
+
+    // Save PDF
+    $label_dir = __DIR__ . '/uploads/labels/';
+    if (!file_exists($label_dir)) mkdir($label_dir, 0755, true);
+
+    $filename = 'label_' . $order_id . '_' . time() . '.pdf';
+    file_put_contents($label_dir . $filename, base64_decode($data['labelImage']));
+
+    // If USPS assigned a tracking number, save it to the order
+    $tracking = $data['labelMetadata']['trackingNumber'] ?? null;
+    if ($tracking && $order_id) {
+        $db->prepare("UPDATE orders SET tracking_number = ? WHERE id = ?")->execute([$tracking, $order_id]);
+    }
+
+    jsonResponse([
+        'pdf_url'         => 'uploads/labels/' . $filename,
+        'tracking_number' => $tracking,
+    ]);
+}
+
+// Send invoice email
+if ($action === 'send_invoice') {
+    $order_id = (int)($_POST['order_id'] ?? 0);
+    $stmt = $db->prepare("SELECT o.*, p.project_name, p.retail_price FROM orders o JOIN projects p ON o.project_id = p.id WHERE o.id = ?");
+    $stmt->execute([$order_id]);
+    $order = $stmt->fetch();
+    if (!$order) jsonResponse(['error' => 'Order not found'], 404);
+    if (!$order['customer_email']) jsonResponse(['error' => 'No email address on file for this customer.'], 400);
+
+    $subject = "Invoice: " . $order['order_number'] . " — KI6CR Ham Radio Kits";
+
+    // Build HTML invoice for email
+    ob_start();
+    include __DIR__ . '/invoice.php';
+    $html = ob_get_clean();
+
+    $headers  = "MIME-Version: 1.0\r\n";
+    $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
+    $headers .= "From: Chris Reddick - KI6CR <cr@christopherreddick.com>\r\n";
+    $headers .= "Reply-To: cr@christopherreddick.com\r\n";
+
+    $sent = mail($order['customer_email'], $subject, $html, $headers);
+    jsonResponse($sent
+        ? ['success' => true, 'message' => "Invoice sent to " . $order['customer_email']]
+        : ['error' => 'mail() failed — check server mail config.']
+    );
 }
 
 // Change password
