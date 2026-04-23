@@ -6,21 +6,21 @@
     <title>KI6CR Inventory Manager</title>
     <style>
         :root {
-            --bg-dark: #f8f9fa;
-            --bg-medium: #ffffff;
-            --bg-light: #f1f3f5;
-            --accent-primary: #2563eb;
-            --accent-primary-dim: #1d4ed8;
-            --accent-secondary: #0891b2;
-            --text-primary: #1f2937;
-            --text-secondary: #6b7280;
+            --bg-dark: #e8f0fe;
+            --bg-medium: #f4f8ff;
+            --bg-light: #c7d9fb;
+            --accent-primary: #1a56db;
+            --accent-primary-dim: #1240a8;
+            --accent-secondary: #0284c7;
+            --text-primary: #0f1c3f;
+            --text-secondary: #4b5563;
             --text-dim: #9ca3af;
-            --border-color: #e5e7eb;
+            --border-color: #a8c4f5;
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
             --info: #3b82f6;
-            --shadow: rgba(0, 0, 0, 0.1);
+            --shadow: rgba(10, 30, 100, 0.12);
         }
         
         * {
