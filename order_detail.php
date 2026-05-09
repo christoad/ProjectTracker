@@ -77,8 +77,6 @@ body { font-family: 'Courier New', Monaco, monospace; background: var(--bg-dark)
 .n-success { background: #d1fae5; color: #065f46; }
 .n-warning { background: #fef3c7; color: #92400e; }
 .n-danger  { background: #fee2e2; color: #991b1b; }
-.rate-table { width: 100%; font-size: 0.85rem; border-collapse: collapse; margin-top: 0.5rem; }
-.rate-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
 .tracking-result { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: var(--bg-light); border-radius: 4px; font-size: 0.85rem; border: 1px solid var(--border); }
 @media (max-width: 640px) {
     .g2, .g3, .g4 { grid-template-columns: 1fr; }
@@ -180,7 +178,6 @@ body { font-family: 'Courier New', Monaco, monospace; background: var(--bg-dark)
 <div class="card">
     <div class="card-header">
         <span class="card-title">Shipping Address</span>
-        <button class="btn" onclick="validateAddress()">Validate with USPS</button>
     </div>
     <div class="card-body">
         <div class="form-group">
@@ -208,10 +205,9 @@ body { font-family: 'Courier New', Monaco, monospace; background: var(--bg-dark)
                 <input type="text" id="shipCountry" class="form-input" value="<?= htmlspecialchars($order['ship_country'] ?? 'USA') ?>">
             </div>
         </div>
-        <div id="validateResult"></div>
         <?php if (!empty($order['shipping_address']) && empty($order['ship_street'])): ?>
         <div class="notice n-warning" style="margin-top:0.75rem;">
-            Legacy address on file — fill in the fields above for USPS validation and labels.<br>
+            Legacy address on file — fill in the fields above.<br>
             <small style="opacity:0.8;"><?= nl2br(htmlspecialchars($order['shipping_address'])) ?></small>
         </div>
         <?php endif; ?>
@@ -223,15 +219,6 @@ body { font-family: 'Courier New', Monaco, monospace; background: var(--bg-dark)
     <div class="card-header"><span class="card-title">Shipping</span></div>
     <div class="card-body">
 
-        <div class="form-group">
-            <label class="form-label">Rate Estimate</label>
-            <div class="flex">
-                <input type="text" id="rateZip" class="form-input" value="<?= htmlspecialchars($ship_zip_fallback) ?>" placeholder="Destination ZIP" style="max-width:140px;" oninput="this.value=this.value.replace(/\D/,'').slice(0,5)">
-                <button class="btn" onclick="lookupRates()">Get USPS Rates</button>
-            </div>
-            <div id="ratesResult"></div>
-        </div>
-
         <div class="g3">
             <div class="form-group">
                 <label class="form-label">Shipping Charge ($)</label>
@@ -239,7 +226,7 @@ body { font-family: 'Courier New', Monaco, monospace; background: var(--bg-dark)
             </div>
             <div class="form-group" style="grid-column: span 2;">
                 <label class="form-label">Mail Service Used</label>
-                <input type="text" id="orderMailService" class="form-input" value="<?= htmlspecialchars($order['mail_service'] ?? '') ?>" placeholder="e.g. USPS Ground Advantage">
+                <input type="text" id="orderMailService" class="form-input" value="<?= htmlspecialchars($order['mail_service'] ?? '') ?>" placeholder="e.g. Ground Advantage, Priority Mail">
             </div>
         </div>
 
@@ -247,27 +234,9 @@ body { font-family: 'Courier New', Monaco, monospace; background: var(--bg-dark)
 
         <div class="form-group">
             <label class="form-label">Tracking Number</label>
-            <div class="flex">
-                <input type="text" id="orderTracking" class="form-input" value="<?= htmlspecialchars($order['tracking_number'] ?? '') ?>" placeholder="94001118992235..." style="font-size:0.85rem;">
-                <button class="btn" onclick="checkTracking()">Check Status</button>
-            </div>
-            <div id="trackingResult"></div>
+            <input type="text" id="orderTracking" class="form-input" value="<?= htmlspecialchars($order['tracking_number'] ?? '') ?>" placeholder="94001118992235..." style="font-size:0.85rem;">
         </div>
 
-        <hr class="divider">
-
-        <div class="form-group">
-            <label class="form-label">Generate Label</label>
-            <div class="flex" style="margin-top:0.35rem;">
-                <select id="labelMailClass" class="form-select" style="max-width:260px;">
-                    <option value="GROUND_ADVANTAGE">Ground Advantage</option>
-                    <option value="PRIORITY_MAIL">Priority Mail</option>
-                    <option value="PRIORITY_MAIL_EXPRESS">Priority Mail Express</option>
-                </select>
-                <button class="btn btn-primary" onclick="generateLabel()">Generate USPS Label (PDF)</button>
-            </div>
-            <div id="labelResult"></div>
-        </div>
     </div>
 </div>
 
@@ -362,141 +331,6 @@ async function deleteOrder() {
     fd.append('id', ORDER_ID);
     await fetch('api.php', { method: 'POST', body: fd });
     window.location.href = 'index.php';
-}
-
-// ── Address Validation ───────────────────────────────────
-async function validateAddress() {
-    const street = document.getElementById('shipStreet').value.trim();
-    const city   = document.getElementById('shipCity').value.trim();
-    const state  = document.getElementById('shipState').value.trim();
-    const zip    = document.getElementById('shipZip').value.trim();
-    const r      = document.getElementById('validateResult');
-
-    if (!street || !city || !state) {
-        r.innerHTML = '<div class="notice n-warning">Fill in street, city, and state first.</div>';
-        return;
-    }
-    r.innerHTML = '<div class="notice n-info">Validating…</div>';
-
-    try {
-        const params = new URLSearchParams({ action:'validate_address', street, street2: document.getElementById('shipStreet2').value.trim(), city, state, zip });
-        const resp = await fetch('api.php?' + params);
-        const d = await resp.json();
-        if (d.error) { r.innerHTML = `<div class="notice n-danger">${d.error}</div>`; return; }
-        const a = d.standardized;
-        const display = [a.streetAddress, a.secondaryAddress, `${a.city}, ${a.state} ${a.ZIPCode}`].filter(Boolean).join(', ');
-        r.innerHTML = `<div class="notice n-success">
-            Verified: ${display}
-            <button class="btn" style="margin-left:0.75rem;padding:0.15rem 0.5rem;font-size:0.8rem;"
-                onclick='applyAddress(${JSON.stringify(a)})'>Use This</button>
-        </div>`;
-    } catch(e) {
-        r.innerHTML = '<div class="notice n-danger">Request failed.</div>';
-    }
-}
-
-function applyAddress(a) {
-    document.getElementById('shipStreet').value  = a.streetAddress   || '';
-    document.getElementById('shipStreet2').value = a.secondaryAddress || '';
-    document.getElementById('shipCity').value    = a.city             || '';
-    document.getElementById('shipState').value   = a.state            || '';
-    document.getElementById('shipZip').value     = a.ZIPCode          || '';
-    document.getElementById('rateZip').value     = a.ZIPCode          || '';
-    document.getElementById('validateResult').innerHTML = '<div class="notice n-success">Address applied.</div>';
-}
-
-// ── Rate Lookup ──────────────────────────────────────────
-async function lookupRates() {
-    const zip       = document.getElementById('rateZip').value.trim();
-    const projectId = document.getElementById('orderProject').value;
-    const r         = document.getElementById('ratesResult');
-    if (!zip) { r.innerHTML = '<small style="color:var(--warning);">Enter a ZIP code.</small>'; return; }
-    r.innerHTML = '<small style="color:var(--text-sec);">Fetching rates…</small>';
-    try {
-        const resp = await fetch(`api.php?action=get_shipping_rates&project_id=${encodeURIComponent(projectId)}&dest_zip=${encodeURIComponent(zip)}`);
-        const d = await resp.json();
-        if (d.error) { r.innerHTML = `<small style="color:var(--danger);">${d.error}</small>`; return; }
-        let html = `<small style="color:var(--text-sec);">${d.weight_oz} oz &nbsp;·&nbsp; ${d.origin_zip} → ${d.dest_zip}</small>`;
-        html += '<table class="rate-table">';
-        d.rates.forEach(row => {
-            html += `<tr>
-                <td>${row.service}</td>
-                <td style="text-align:right;font-weight:bold;">$${row.rate.toFixed(2)}</td>
-                <td style="text-align:right;">
-                    <button class="btn" style="padding:0.1rem 0.4rem;font-size:0.8rem;"
-                        onclick="useRate('${row.rate.toFixed(2)}','${row.service.replace(/'/g,'')}');this.textContent='Used';this.style.fontWeight='bold';">
-                        Use
-                    </button>
-                </td>
-            </tr>`;
-        });
-        html += '</table>';
-        r.innerHTML = html;
-    } catch(e) { r.innerHTML = '<small style="color:var(--danger);">Request failed.</small>'; }
-}
-
-function useRate(rate, service) {
-    document.getElementById('orderShippingCharge').value = rate;
-    document.getElementById('orderMailService').value    = service;
-    const map = { 'Ground Advantage':'GROUND_ADVANTAGE', 'Priority Mail Express':'PRIORITY_MAIL_EXPRESS', 'Priority Mail':'PRIORITY_MAIL' };
-    for (const [k,v] of Object.entries(map)) {
-        if (service.includes(k)) { document.getElementById('labelMailClass').value = v; break; }
-    }
-}
-
-// ── Tracking ─────────────────────────────────────────────
-async function checkTracking() {
-    const num = document.getElementById('orderTracking').value.trim();
-    const r   = document.getElementById('trackingResult');
-    if (!num) { r.innerHTML = '<small style="color:var(--warning);">Enter a tracking number.</small>'; return; }
-    r.innerHTML = '<small style="color:var(--text-sec);">Checking…</small>';
-    try {
-        const resp = await fetch(`api.php?action=get_tracking&tracking_number=${encodeURIComponent(num)}`);
-        const d = await resp.json();
-        if (d.error) { r.innerHTML = `<div class="tracking-result" style="color:var(--danger);">${d.error}</div>`; return; }
-        r.innerHTML = `<div class="tracking-result">
-            <strong>${d.status}</strong>${d.description ? ' — ' + d.description : ''}
-            ${d.location ? '<br><small>Location: ' + d.location + '</small>' : ''}
-            ${d.timestamp ? '<br><small>' + d.timestamp + '</small>' : ''}
-        </div>`;
-    } catch(e) { r.innerHTML = '<small style="color:var(--danger);">Request failed.</small>'; }
-}
-
-// ── Label Generation ─────────────────────────────────────
-async function generateLabel() {
-    const r = document.getElementById('labelResult');
-    const street = document.getElementById('shipStreet').value.trim();
-    const city   = document.getElementById('shipCity').value.trim();
-    const state  = document.getElementById('shipState').value.trim();
-    const zip    = document.getElementById('shipZip').value.trim();
-    if (!street || !city || !state || !zip) {
-        r.innerHTML = '<div class="notice n-warning">Fill in the shipping address before generating a label.</div>';
-        return;
-    }
-    r.innerHTML = '<div class="notice n-info">Generating label — this may take a few seconds…</div>';
-    const fd = new FormData();
-    fd.append('action',      'generate_label');
-    fd.append('order_id',    ORDER_ID);
-    fd.append('mail_class',  document.getElementById('labelMailClass').value);
-    fd.append('to_name',     document.getElementById('orderCustomer').value.trim());
-    fd.append('to_street',   street);
-    fd.append('to_street2',  document.getElementById('shipStreet2').value.trim());
-    fd.append('to_city',     city);
-    fd.append('to_state',    state);
-    fd.append('to_zip',      zip);
-    try {
-        const resp = await fetch('api.php', { method:'POST', body:fd });
-        const d = await resp.json();
-        if (d.error) { r.innerHTML = `<div class="notice n-danger">${d.error}</div>`; return; }
-        let html = `<div class="notice n-success">Label ready.
-            <a href="${d.pdf_url}" target="_blank" class="btn btn-primary" style="margin-left:0.75rem;">Download / Print</a>`;
-        if (d.tracking_number) {
-            html += `<br><small style="margin-top:0.3rem;display:block;">Tracking: ${d.tracking_number}</small>`;
-            document.getElementById('orderTracking').value = d.tracking_number;
-        }
-        html += '</div>';
-        r.innerHTML = html;
-    } catch(e) { r.innerHTML = '<div class="notice n-danger">Request failed.</div>'; }
 }
 
 // ── Invoice / Email ──────────────────────────────────────

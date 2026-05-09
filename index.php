@@ -606,7 +606,10 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">Parts Inventory</h2>
-                        <button class="btn btn-primary" onclick="openPartModal()">+ New Part</button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <input type="text" id="partsSearchInput" class="form-input" placeholder="Search parts..." style="width: 220px;" oninput="filterPartsTable(this.value)">
+                            <button class="btn btn-primary" onclick="openPartModal()">+ New Part</button>
+                        </div>
                     </div>
                     <div class="table-container">
                         <table class="data-table" id="partsTable">
@@ -791,6 +794,10 @@
         let parts = [];
         let orders = [];
 
+        // BOM view state (project modal)
+        let bomSortState = { column: 'part_number', direction: 'asc' };
+        let bomSearchQuery = '';
+
         // Category → part number prefix map
         // 42 is reserved for 3D printed parts per KI6CR convention
         const CATEGORY_PREFIXES = {
@@ -952,38 +959,56 @@
         }
 
         // Parts
+        let allPartsCache = [];
+
         async function loadParts() {
             try {
                 const response = await fetch('api.php?action=get_parts');
-                let allParts = await response.json();
-                
-                // Apply sorting
-                allParts = sortData(allParts, sortState.parts.column, sortState.parts.direction);
-                parts = allParts;
-                
-                const tbody = document.querySelector('#partsTable tbody');
-                tbody.innerHTML = parts.map(p => {
-                    const stockClass = p.current_stock <= p.min_stock_level ? 'stock-low' : 'stock-ok';
-                    return `
-                        <tr>
-                            <td><strong>${p.part_number}</strong></td>
-                            <td>${p.part_name}</td>
-                            <td>${p.category || '-'}</td>
-                            <td class="${stockClass}">${p.current_stock}</td>
-                            <td>${p.min_stock_level}</td>
-                            <td>
-                                <button class="btn btn-small" onclick="viewPart(${p.id})">View</button>
-                                <button class="btn btn-small" onclick="editPart(${p.id})">Edit</button>
-                                <button class="btn btn-small" onclick="checkinInventory(${p.id})">Check-in</button>
-                                <button class="btn btn-small" onclick="copyPart(${p.id})">Copy</button>
-                                <button class="btn btn-small btn-danger" onclick="deletePart(${p.id})">Delete</button>
-                            </td>
-                        </tr>
-                    `;
-                }).join('');
+                allPartsCache = await response.json();
+                parts = allPartsCache;
+                const currentSearch = document.getElementById('partsSearchInput')?.value || '';
+                renderPartsTable(currentSearch);
             } catch (error) {
                 console.error('Error loading parts:', error);
             }
+        }
+
+        function filterPartsTable(query) {
+            renderPartsTable(query);
+        }
+
+        function renderPartsTable(searchQuery) {
+            let filtered = allPartsCache;
+            if (searchQuery && searchQuery.trim()) {
+                const q = searchQuery.trim().toLowerCase();
+                filtered = allPartsCache.filter(p =>
+                    (p.part_number || '').toLowerCase().includes(q) ||
+                    (p.part_name || '').toLowerCase().includes(q) ||
+                    (p.category || '').toLowerCase().includes(q)
+                );
+            }
+            filtered = sortData(filtered, sortState.parts.column, sortState.parts.direction);
+
+            const tbody = document.querySelector('#partsTable tbody');
+            tbody.innerHTML = filtered.map(p => {
+                const stockClass = p.current_stock <= p.min_stock_level ? 'stock-low' : 'stock-ok';
+                return `
+                    <tr>
+                        <td><strong>${p.part_number}</strong></td>
+                        <td>${p.part_name}</td>
+                        <td>${p.category || '-'}</td>
+                        <td class="${stockClass}">${p.current_stock}</td>
+                        <td>${p.min_stock_level}</td>
+                        <td>
+                            <button class="btn btn-small" onclick="viewPart(${p.id})">View</button>
+                            <button class="btn btn-small" onclick="editPart(${p.id})">Edit</button>
+                            <button class="btn btn-small" onclick="checkinInventory(${p.id})">Check-in</button>
+                            <button class="btn btn-small" onclick="copyPart(${p.id})">Copy</button>
+                            <button class="btn btn-small btn-danger" onclick="deletePart(${p.id})">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // Orders
@@ -1103,7 +1128,7 @@
                                 <input type="number" id="projectPkgWidth"  class="form-input" value="${project.pkg_width  || ''}" step="0.1" min="0" placeholder="Width">
                                 <input type="number" id="projectPkgHeight" class="form-input" value="${project.pkg_height || ''}" step="0.1" min="0" placeholder="Height">
                             </div>
-                            <small style="color: var(--text-secondary); font-size: 0.875rem;">Weight and dimensions required for USPS rate estimates</small>
+                            <small style="color: var(--text-secondary); font-size: 0.875rem;">Used for shipping calculations</small>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Project Image</label>
@@ -1151,50 +1176,12 @@
             try {
                 const response = await fetch(`api.php?action=get_project&id=${id}`);
                 const project = await response.json();
-                
-                // Store project data globally for export function
+
+                // Store project data globally for export function and BOM rendering
                 window.currentProjectData = project;
-                
-                const partsHtml = project.parts && project.parts.length > 0
-                    ? `
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Part Number</th>
-                                    <th>Part Name</th>
-                                    <th>Qty Req'd</th>
-                                    <th>Unit Cost</th>
-                                    <th>Line Total</th>
-                                    <th>In Stock</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${project.parts.map(p => `
-                                    <tr>
-                                        <td>${p.part_number}</td>
-                                        <td>${p.part_name}</td>
-                                        <td>${p.quantity_required}</td>
-                                        <td>$${parseFloat(p.unit_cost || 0).toFixed(2)}</td>
-                                        <td>$${parseFloat(p.line_total || 0).toFixed(2)}</td>
-                                        <td class="${p.current_stock >= p.quantity_required ? 'stock-ok' : 'stock-low'}">
-                                            ${p.current_stock}
-                                        </td>
-                                        <td>
-                                            <button class="btn btn-small" onclick="viewPart(${p.part_id})">View</button>
-                                            <button class="btn btn-small" onclick="editProjectPart(${project.id}, ${p.id}, ${p.part_id}, ${p.quantity_required})">Edit</button>
-                                            <button class="btn btn-small btn-danger" onclick="removeProjectPart(${p.id}, ${project.id})">Remove</button>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                                <tr style="font-weight: bold; background: var(--bg-light);">
-                                    <td colspan="4" style="text-align: right;">Total BOM Cost:</td>
-                                    <td colspan="3">$${parseFloat(project.total_bom_cost || 0).toFixed(2)}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    `
-                    : '<p style="color: var(--text-dim);">No parts assigned to this project yet.</p>';
+                // Reset BOM state each time a project is opened
+                bomSortState = { column: 'part_number', direction: 'asc' };
+                bomSearchQuery = '';
 
                 const imageHtml = project.image_path
                     ? `<img src="${project.image_path}" style="max-width: 100%; border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 1rem;">`
@@ -1233,7 +1220,7 @@
                     project.project_name,
                     `
                         ${imageHtml}
-                        
+
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                             <div>
                                 <strong>Status:</strong> <span class="badge badge-${getStatusColor(project.status)}">${project.status}</span><br>
@@ -1267,16 +1254,17 @@
                         </div>
 
                         <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
-                        
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
                             <h4>Bill of Materials</h4>
-                            <div style="display: flex; gap: 0.5rem;">
-                                <button class="btn btn-small" onclick="exportBOM()" style="background: var(--success); color: white; border-color: var(--success);">📥 Export BOM</button>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <input type="text" id="bomSearchInput" class="form-input" placeholder="Search BOM..." style="width: 200px;" oninput="bomSearchQuery = this.value; renderBOMTable();">
+                                <button class="btn btn-small" onclick="exportBOM()" style="background: var(--success); color: white; border-color: var(--success);">&#128229; Export BOM</button>
                                 <button class="btn btn-primary btn-small" onclick="addPartToProject(${project.id})">+ Add Part</button>
                             </div>
                         </div>
-                        
-                        ${partsHtml}
+
+                        <div id="bom-table-container"></div>
 
                         <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
 
@@ -1316,9 +1304,91 @@
                     null,
                     true  // isWide = true
                 );
+
+                // Now render the BOM table into the placeholder
+                renderBOMTable();
             } catch (error) {
                 alert('Error loading project details');
             }
+        }
+
+        function renderBOMTable() {
+            const container = document.getElementById('bom-table-container');
+            if (!container) return;
+            const project = window.currentProjectData;
+            if (!project || !project.parts || project.parts.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-dim);">No parts assigned to this project yet.</p>';
+                return;
+            }
+
+            let filtered = project.parts;
+            if (bomSearchQuery && bomSearchQuery.trim()) {
+                const q = bomSearchQuery.trim().toLowerCase();
+                filtered = project.parts.filter(p =>
+                    (p.part_number || '').toLowerCase().includes(q) ||
+                    (p.part_name || '').toLowerCase().includes(q) ||
+                    (p.category || '').toLowerCase().includes(q)
+                );
+            }
+            filtered = sortData(filtered, bomSortState.column, bomSortState.direction);
+
+            const arrow = (col) => bomSortState.column === col ? (bomSortState.direction === 'asc' ? ' &#9650;' : ' &#9660;') : '';
+            const thStyle = 'cursor: pointer; user-select: none;';
+
+            const rows = filtered.map(p => `
+                <tr>
+                    <td>${p.part_number}</td>
+                    <td>${p.part_name}</td>
+                    <td>${p.category || '-'}</td>
+                    <td>${p.quantity_required}</td>
+                    <td>$${parseFloat(p.unit_cost || 0).toFixed(2)}</td>
+                    <td>$${parseFloat(p.line_total || 0).toFixed(2)}</td>
+                    <td class="${p.current_stock >= p.quantity_required ? 'stock-ok' : 'stock-low'}">${p.current_stock}</td>
+                    <td>
+                        <button class="btn btn-small" onclick="viewPart(${p.part_id})">View</button>
+                        <button class="btn btn-small" onclick="editProjectPart(${project.id}, ${p.id}, ${p.part_id}, ${p.quantity_required})">Edit</button>
+                        <button class="btn btn-small btn-danger" onclick="removeProjectPart(${p.id}, ${project.id})">Remove</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            const totalRow = bomSearchQuery.trim()
+                ? ''
+                : `<tr style="font-weight: bold; background: var(--bg-light);">
+                       <td colspan="5" style="text-align: right;">Total BOM Cost:</td>
+                       <td colspan="3">$${parseFloat(project.total_bom_cost || 0).toFixed(2)}</td>
+                   </tr>`;
+
+            container.innerHTML = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="${thStyle}" onclick="sortBOM('part_number')" title="Sort">Part Number${arrow('part_number')}</th>
+                            <th style="${thStyle}" onclick="sortBOM('part_name')" title="Sort">Part Name${arrow('part_name')}</th>
+                            <th style="${thStyle}" onclick="sortBOM('category')" title="Sort">Category${arrow('category')}</th>
+                            <th style="${thStyle}" onclick="sortBOM('quantity_required')" title="Sort">Qty Req'd${arrow('quantity_required')}</th>
+                            <th style="${thStyle}" onclick="sortBOM('unit_cost')" title="Sort">Unit Cost${arrow('unit_cost')}</th>
+                            <th style="${thStyle}" onclick="sortBOM('line_total')" title="Sort">Line Total${arrow('line_total')}</th>
+                            <th style="${thStyle}" onclick="sortBOM('current_stock')" title="Sort">In Stock${arrow('current_stock')}</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filtered.length > 0 ? rows : '<tr><td colspan="8" style="color: var(--text-dim); text-align: center;">No parts match your search.</td></tr>'}
+                        ${totalRow}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function sortBOM(column) {
+            if (bomSortState.column === column) {
+                bomSortState.direction = bomSortState.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                bomSortState.column = column;
+                bomSortState.direction = 'asc';
+            }
+            renderBOMTable();
         }
 
         function exportBOM() {
@@ -1568,7 +1638,7 @@
         // Part Modal Functions (similar pattern to projects)
         function openPartModal(partId = null) {
             const isEdit = partId !== null;
-            const part = isEdit ? parts.find(p => p.id === partId) : {};
+            const part = isEdit ? parts.find(p => Number(p.id) === Number(partId)) : {};
 
             const categoryOptions = Object.keys(CATEGORY_PREFIXES).map(cat =>
                 `<option value="${cat}" ${part.category === cat ? 'selected' : ''}>${cat} (${CATEGORY_PREFIXES[cat]}-)</option>`
@@ -1883,7 +1953,7 @@
                 const result = await response.json();
                 if (result.success) {
                     alert('Part copied! You can now edit it.');
-                    loadParts();
+                    await loadParts();
                     editPart(result.id);
                 } else {
                     alert('Error copying part');
@@ -2323,16 +2393,6 @@
                             <input type="number" id="orderShippingCharge" class="form-input" value="${order.shipping_charge || 0}" step="0.01" min="0">
                             <small style="color: var(--text-secondary); font-size: 0.875rem;">Actual shipping cost paid for P&L tracking</small>
                         </div>
-                        <div class="form-group" style="background: var(--bg-light); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.75rem;">
-                            <label class="form-label">USPS Rate Estimate</label>
-                            <div class="flex flex-gap" style="align-items: flex-end;">
-                                <div style="flex: 1;">
-                                    <input type="text" id="rateDestZip" class="form-input" placeholder="Destination ZIP" maxlength="10" style="font-family: inherit;">
-                                </div>
-                                <button type="button" class="btn btn-secondary" onclick="lookupShippingRates()" style="white-space: nowrap;">Get USPS Rates</button>
-                            </div>
-                            <div id="shippingRatesResult" style="margin-top: 0.5rem;"></div>
-                        </div>
                         <div class="form-group">
                             <label class="form-label">Shipping Address</label>
                             <textarea id="orderAddress" class="form-textarea">${order.shipping_address || ''}</textarea>
@@ -2398,58 +2458,6 @@
                     alert('Error saving order');
                 }
             });
-        }
-
-        async function lookupShippingRates() {
-            const zip = document.getElementById('rateDestZip').value.trim();
-            const projectId = document.getElementById('orderProject').value;
-            const resultEl = document.getElementById('shippingRatesResult');
-
-            if (!projectId) {
-                resultEl.innerHTML = '<small style="color: var(--warning);">Select a project/kit first.</small>';
-                return;
-            }
-            if (!zip) {
-                resultEl.innerHTML = '<small style="color: var(--warning);">Enter a destination ZIP code.</small>';
-                return;
-            }
-
-            resultEl.innerHTML = '<small style="color: var(--text-secondary);">Fetching rates...</small>';
-
-            try {
-                const resp = await fetch(`api.php?action=get_shipping_rates&project_id=${encodeURIComponent(projectId)}&dest_zip=${encodeURIComponent(zip)}`);
-                const data = await resp.json();
-
-                if (data.error) {
-                    resultEl.innerHTML = `<small style="color: var(--danger);">${data.error}</small>`;
-                    return;
-                }
-
-                if (!data.rates || data.rates.length === 0) {
-                    resultEl.innerHTML = '<small style="color: var(--text-secondary);">No rates returned.</small>';
-                    return;
-                }
-
-                let html = `<small style="color: var(--text-secondary);">Weight: ${data.weight_oz} oz &nbsp;|&nbsp; ${data.origin_zip} → ${data.dest_zip}</small>`;
-                html += '<table style="width:100%; margin-top:0.4rem; font-size:0.85rem; border-collapse:collapse;">';
-                data.rates.forEach(r => {
-                    html += `<tr style="border-bottom: 1px solid var(--border-color);">
-                        <td style="padding: 0.25rem 0.5rem 0.25rem 0;">${r.service}</td>
-                        <td style="padding: 0.25rem; text-align:right; font-weight:bold;">$${r.rate.toFixed(2)}</td>
-                        <td style="padding: 0.25rem 0 0.25rem 0.5rem; text-align:right;">
-                            <button type="button" class="btn" style="padding: 0.15rem 0.5rem; font-size:0.8rem;"
-                                onclick="document.getElementById('orderShippingCharge').value='${r.rate.toFixed(2)}'; document.getElementById('shippingRatesResult').querySelectorAll('button').forEach(b=>b.style.fontWeight='normal'); this.style.fontWeight='bold'; this.textContent='Used';">
-                                Use
-                            </button>
-                        </td>
-                    </tr>`;
-                });
-                html += '</table>';
-                resultEl.innerHTML = html;
-
-            } catch (err) {
-                resultEl.innerHTML = '<small style="color: var(--danger);">Request failed.</small>';
-            }
         }
 
         function editOrder(id) {
@@ -2571,9 +2579,11 @@
             updateSortArrows(table);
             
             switch(table) {
-                case 'parts':
-                    loadParts();
+                case 'parts': {
+                    const currentSearch = document.getElementById('partsSearchInput')?.value || '';
+                    renderPartsTable(currentSearch);
                     break;
+                }
                 case 'projects':
                     loadProjects();
                     break;
