@@ -4,281 +4,366 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KI6CR Inventory Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-dark: #e8f0fe;
-            --bg-medium: #f4f8ff;
-            --bg-light: #c7d9fb;
-            --accent-primary: #1a56db;
-            --accent-primary-dim: #1240a8;
-            --accent-secondary: #0284c7;
-            --text-primary: #0f1c3f;
-            --text-secondary: #4b5563;
-            --text-dim: #9ca3af;
-            --border-color: #a8c4f5;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --info: #3b82f6;
-            --shadow: rgba(10, 30, 100, 0.12);
+          --bg-body:            #e8f0fe;
+          --bg-card:            #f4f8ff;
+          --bg-card-header:     #eef3fd;
+          --bg-card-alt-row:    #f8fafe;
+          --bg-dark:            #e8f0fe;
+          --bg-medium:          #f4f8ff;
+          --bg-light:           #c7d9fb;
+          --header-gradient:    linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
+          --header-height:      56px;
+          --nav-bg:             #162038;
+          --nav-border-bottom:  #1a56db;
+          --nav-tab-active-bg:  #1a56db;
+          --nav-tab-active-color: #ffffff;
+          --nav-tab-color:      #5d729e;
+          --accent-primary:     #1a56db;
+          --accent-primary-dim: #1240a8;
+          --accent-secondary:   #0680c6;
+          --border-color:       #c7d9fb;
+          --border-card:        #c7d9fb;
+          --border-table-head:  #1a56db;
+          --text-primary:       #0f1c3f;
+          --text-secondary:     #6b7280;
+          --text-dim:           #9ca3af;
+          --success:            #10b981;
+          --warning:            #f59e0b;
+          --danger:             #ef4444;
+          --info:               #3b82f6;
+          --shadow:             rgba(10, 30, 100, 0.08);
+          --shadow-card:        0 2px 8px rgba(10, 30, 100, 0.06);
+          --shadow-header:      0 2px 16px rgba(15, 28, 63, 0.22);
+          --shadow-modal:       0 20px 60px rgba(0, 0, 0, 0.30);
+          --font-body:          'Figtree', sans-serif;
+          --font-mono:          'IBM Plex Mono', monospace;
+          --radius-sm:          3px;
+          --radius-md:          4px;
+          --radius-card:        6px;
+          --radius-modal:       8px;
+          --z-header:           100;
+          --z-modal:            1000;
         }
-        
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
-            font-family: 'Courier New', 'Monaco', monospace;
-            background: var(--bg-dark);
+            font-family: var(--font-body);
+            background: var(--bg-body);
             color: var(--text-primary);
             line-height: 1.6;
         }
-        
+
         /* Header */
         .app-header {
-            background: var(--bg-medium);
-            border-bottom: 2px solid var(--accent-primary);
-            padding: 1rem 2rem;
+            background: var(--header-gradient);
+            border-bottom: none;
+            padding: 0 32px;
+            height: var(--header-height);
             display: flex;
             justify-content: space-between;
             align-items: center;
             position: sticky;
             top: 0;
-            z-index: 100;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: var(--z-header);
+            box-shadow: var(--shadow-header);
         }
-        
-        .app-logo {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--accent-primary);
-            letter-spacing: 2px;
+
+        .app-logo-block {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .app-logo-icon {
+            width: 32px; height: 32px;
+            border: 2px solid rgba(255,255,255,0.35);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .app-logo-diamond {
+            width: 12px; height: 12px;
+            background: #fff;
+            transform: rotate(45deg);
+            border-radius: 2px;
+            opacity: 0.92;
+        }
+
+        .app-logo-callsign {
+            font-family: var(--font-mono);
+            font-size: 16px; font-weight: 700;
+            color: #fff;
+            letter-spacing: 2.5px; line-height: 1.1;
+        }
+
+        .app-logo-subtitle {
+            font-size: 10px;
+            color: rgba(255,255,255,0.58);
+            letter-spacing: 0.8px;
             text-transform: uppercase;
         }
-        
-        .app-logo::before {
-            content: '◆ ';
-            color: var(--accent-secondary);
-        }
-        
+
         .user-info {
             display: flex;
             align-items: center;
             gap: 1rem;
-            color: var(--text-secondary);
         }
-        
+
+        .user-callsign {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: rgba(255,255,255,0.68);
+        }
+
+        .btn-ghost {
+            padding: 5px 14px;
+            background: rgba(255,255,255,0.10);
+            border: 1px solid rgba(255,255,255,0.22);
+            color: rgba(255,255,255,0.82);
+            border-radius: var(--radius-md);
+            font-size: 12px; cursor: pointer;
+            font-family: var(--font-body); font-weight: 500;
+        }
+
+        .btn-ghost:hover {
+            background: rgba(255,255,255,0.18);
+        }
+
         /* Navigation */
         .nav-tabs {
-            background: var(--bg-medium);
-            padding: 0 2rem;
+            background: var(--nav-bg);
+            padding: 0 32px;
             display: flex;
-            gap: 0.5rem;
-            border-bottom: 1px solid var(--border-color);
+            gap: 0;
+            border-bottom: 2px solid var(--nav-border-bottom);
         }
-        
+
         .nav-tab {
-            padding: 0.75rem 1.5rem;
+            padding: 11px 18px;
             background: transparent;
             border: none;
-            color: var(--text-secondary);
+            border-right: 1px solid rgba(255,255,255,0.04);
+            color: var(--nav-tab-color);
             cursor: pointer;
-            transition: all 0.2s;
-            border-bottom: 2px solid transparent;
-            font-family: inherit;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            font-family: var(--font-body);
+            font-size: 13px;
+            font-weight: 400;
+            letter-spacing: 0.2px;
+            text-transform: none;
+            transition: all 0.15s;
         }
-        
+
         .nav-tab:hover {
-            color: var(--text-primary);
-            background: var(--bg-light);
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.75);
         }
-        
+
         .nav-tab.active {
-            color: var(--accent-primary);
-            border-bottom-color: var(--accent-primary);
+            background: var(--nav-tab-active-bg);
+            color: var(--nav-tab-active-color);
+            font-weight: 600;
         }
-        
+
         /* Main Content */
         .main-content {
-            padding: 2rem;
+            padding: 20px 32px;
             max-width: 1400px;
             margin: 0 auto;
         }
-        
+
         .section {
             display: none;
         }
-        
+
         .section.active {
             display: block;
-            animation: fadeIn 0.3s;
+            animation: fadeIn 0.25s ease;
         }
-        
+
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
+            from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
+
         /* Cards */
         .card {
-            background: var(--bg-medium);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-card);
+            padding: 0;
             margin-bottom: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            box-shadow: var(--shadow-card);
         }
-        
+
         .card-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border-color);
+            padding: 13px 20px;
+            background: var(--bg-card-header);
+            border-bottom: 1px solid var(--border-card);
+            border-radius: var(--radius-card) var(--radius-card) 0 0;
+            margin-bottom: 0;
         }
-        
+
         .card-title {
-            font-size: 1.25rem;
-            color: var(--accent-primary);
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--text-primary);
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.9px;
         }
-        
+
+        .card-body {
+            padding: 18px 20px;
+        }
+
         /* Buttons */
         .btn {
-            padding: 0.6rem 1.2rem;
-            border: 1px solid var(--border-color);
-            background: var(--bg-light);
-            color: var(--text-primary);
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 0.9rem;
-            border-radius: 4px;
-            transition: all 0.2s;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .btn:hover {
-            background: var(--bg-medium);
-            border-color: var(--accent-primary);
+            padding: 5px 12px;
+            border: 1px solid var(--border-card);
+            background: #e8f0fe;
             color: var(--accent-primary);
+            cursor: pointer;
+            font-family: var(--font-body);
+            font-size: 11px;
+            font-weight: 500;
+            border-radius: var(--radius-sm);
+            transition: all 0.15s;
+            text-transform: none;
+            letter-spacing: 0;
         }
-        
+
+        .btn:hover {
+            background: var(--bg-light);
+            border-color: var(--accent-primary);
+        }
+
         .btn-primary {
+            padding: 6px 15px;
             background: var(--accent-primary);
             border-color: var(--accent-primary);
-            color: var(--bg-dark);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: var(--radius-md);
         }
-        
+
         .btn-primary:hover {
             background: var(--accent-primary-dim);
             border-color: var(--accent-primary-dim);
-            color: var(--bg-dark);
+            color: #fff;
         }
-        
+
         .btn-danger {
-            background: var(--danger);
-            border-color: var(--danger);
-            color: white;
+            background: rgba(239,68,68,0.10);
+            border: 1px solid rgba(239,68,68,0.27);
+            color: var(--danger);
         }
-        
+
         .btn-danger:hover {
-            background: #dc2626;
-            border-color: #dc2626;
+            background: rgba(239,68,68,0.18);
         }
-        
+
         .btn-small {
-            padding: 0.4rem 0.8rem;
-            font-size: 0.8rem;
+            padding: 4px 9px;
+            font-size: 11px;
         }
         
         /* Forms */
         .form-group {
             margin-bottom: 1rem;
         }
-        
+
         .form-label {
             display: block;
-            margin-bottom: 0.5rem;
+            margin-bottom: 5px;
             color: var(--text-secondary);
-            font-size: 0.9rem;
+            font-size: 10.5px;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.8px;
+            font-family: var(--font-body);
         }
-        
+
         .form-input,
         .form-select,
         .form-textarea {
             width: 100%;
-            padding: 0.6rem;
-            background: var(--bg-dark);
-            border: 1px solid var(--border-color);
+            padding: 8px 12px;
+            background: #fff;
+            border: 1px solid var(--border-card);
             color: var(--text-primary);
-            font-family: inherit;
-            border-radius: 4px;
-            transition: all 0.2s;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            border-radius: var(--radius-md);
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
-        
+
         .form-input:focus,
         .form-select:focus,
         .form-textarea:focus {
             outline: none;
             border-color: var(--accent-primary);
-            box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.1);
+            box-shadow: 0 0 0 3px rgba(26,86,219,0.12);
         }
-        
+
         .form-textarea {
             resize: vertical;
             min-height: 80px;
         }
-        
+
         /* Tables */
         .table-container {
             overflow-x: auto;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
+            border-radius: 0 0 var(--radius-card) var(--radius-card);
         }
-        
+
         .data-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.9rem;
+            font-size: 12.5px;
         }
-        
+
         .data-table thead {
-            background: var(--bg-light);
+            background: var(--bg-card-header);
         }
-        
+
         .data-table th {
-            padding: 0.75rem;
+            padding: 9px 16px;
             text-align: left;
             color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 600;
             text-transform: uppercase;
-            font-size: 0.8rem;
-            letter-spacing: 0.5px;
-            border-bottom: 2px solid var(--accent-primary);
+            letter-spacing: 0.9px;
+            border-bottom: 2px solid var(--border-table-head);
         }
-        
+
         .data-table td {
-            padding: 0.75rem;
-            border-bottom: 1px solid var(--border-color);
+            padding: 10px 16px;
+            border-bottom: 1px solid #eef3fd;
         }
-        
-        .data-table tbody tr:hover {
-            background: var(--bg-light);
-        }
-        
-        .data-table tbody tr:last-child td {
-            border-bottom: none;
-        }
-        
+
+        .data-table tbody tr:nth-child(even) { background: #fff; }
+        .data-table tbody tr:nth-child(odd)  { background: var(--bg-card-alt-row); }
+        .data-table tbody tr:hover           { background: var(--bg-body); }
+        .data-table tbody tr:last-child td   { border-bottom: none; }
+
+        .cell-mono { font-family: var(--font-mono); }
+        .cell-pn   { font-family: var(--font-mono); font-weight: 500; color: var(--accent-primary); font-size: 12px; }
+        .cell-callsign { font-family: var(--font-mono); color: var(--text-dim); font-size: 11.5px; }
+        .cell-amount   { font-family: var(--font-mono); font-weight: 700; color: var(--text-primary); }
+
         /* Stats Grid */
         .stats-grid {
             display: grid;
@@ -286,74 +371,113 @@
             gap: 1rem;
             margin-bottom: 2rem;
         }
-        
+
         .stat-card {
-            background: var(--bg-medium);
-            border: 1px solid var(--border-color);
-            border-left: 4px solid var(--accent-primary);
-            padding: 1.5rem;
-            border-radius: 4px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-card);
+            padding: 18px 20px;
+            position: relative;
+            overflow: hidden;
         }
-        
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: var(--accent-primary);
+        }
+
+        .stat-card.stat-parts::before  { background: var(--accent-secondary); }
+        .stat-card.stat-low::before    { background: var(--warning); }
+        .stat-card.stat-orders::before { background: var(--success); }
+
         .stat-value {
-            font-size: 2rem;
-            font-weight: bold;
-            color: var(--accent-primary);
-            font-family: 'Courier New', monospace;
+            font-family: var(--font-mono);
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.05;
+            margin-top: 4px;
         }
-        
+
         .stat-label {
             color: var(--text-secondary);
+            font-size: 10.5px;
             text-transform: uppercase;
-            font-size: 0.8rem;
-            letter-spacing: 1px;
-            margin-top: 0.5rem;
+            letter-spacing: 0.9px;
+            margin-top: 7px;
         }
-        
+
         /* Login Screen */
         .login-container {
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            background: linear-gradient(135deg, var(--bg-dark) 0%, #0a0a0a 100%);
+            background: linear-gradient(160deg, #0a1628 0%, #0f1c3f 60%, #162038 100%);
         }
-        
+
         .login-box {
-            background: var(--bg-medium);
+            background: var(--bg-card);
             border: 2px solid var(--accent-primary);
-            border-radius: 8px;
-            padding: 3rem;
+            border-radius: var(--radius-modal);
+            padding: 40px 36px;
             width: 100%;
-            max-width: 400px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            max-width: 360px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.45);
         }
-        
+
         .login-title {
-            text-align: center;
-            font-size: 2rem;
+            font-family: var(--font-mono);
+            font-size: 22px;
+            font-weight: 700;
             color: var(--accent-primary);
-            margin-bottom: 2rem;
-            text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 3px;
+            margin-bottom: 6px;
         }
-        
+
+        .login-logo-icon {
+            width: 48px; height: 48px;
+            background: var(--header-gradient);
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .login-logo-icon .app-logo-diamond {
+            width: 18px; height: 18px;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 10px;
+            font-size: 13px;
+            background: var(--header-gradient);
+            border: none;
+            border-radius: var(--radius-md);
+        }
+
         /* Badges */
         .badge {
             display: inline-block;
-            padding: 0.25rem 0.6rem;
-            font-size: 0.75rem;
-            border-radius: 3px;
+            padding: 2px 7px;
+            font-size: 10px;
+            font-weight: 700;
+            border-radius: var(--radius-sm);
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
-        .badge-success { background: var(--success); color: var(--bg-dark); }
-        .badge-warning { background: var(--warning); color: var(--bg-dark); }
-        .badge-danger { background: var(--danger); color: white; }
-        .badge-info { background: var(--info); color: white; }
-        .badge-secondary { background: var(--bg-light); color: var(--text-secondary); }
-        
+
+        .badge-success   { background: rgba(16,185,129,0.13); color: var(--success); }
+        .badge-warning   { background: rgba(245,158,11,0.13);  color: var(--warning); }
+        .badge-danger    { background: rgba(239,68,68,0.13);   color: var(--danger); }
+        .badge-info      { background: rgba(59,130,246,0.13);  color: var(--info); }
+        .badge-secondary { background: rgba(156,163,175,0.13); color: var(--text-dim); }
+
         /* Modal */
         .modal {
             display: none;
@@ -362,53 +486,55 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.8);
-            z-index: 1000;
+            background: rgba(0,0,0,0.72);
+            backdrop-filter: blur(4px);
+            z-index: var(--z-modal);
             align-items: center;
             justify-content: center;
         }
-        
+
         .modal.active {
             display: flex;
         }
-        
+
         .modal-content {
-            background: var(--bg-medium);
+            background: var(--bg-card);
             border: 2px solid var(--accent-primary);
-            border-radius: 8px;
-            padding: 2rem;
+            border-radius: var(--radius-modal);
+            padding: 28px 32px;
             max-width: 600px;
             width: 90%;
             max-height: 90vh;
             overflow-y: auto;
-            transition: all 0.3s ease;
+            box-shadow: var(--shadow-modal);
         }
-        
-        /* Wide modal for parts, inventory, etc. */
+
         .modal-content.modal-wide {
             max-width: 1000px;
         }
-        
-        /* Expanded modal takes most of screen */
+
         .modal-content.modal-expanded {
             max-width: 95vw;
             max-height: 95vh;
         }
-        
+
         .modal-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1.5rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 18px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border-card);
         }
-        
+
         .modal-title {
-            font-size: 1.25rem;
+            font-size: 14px;
+            font-weight: 600;
             color: var(--accent-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
         }
-        
+
         .close-modal {
             background: none;
             border: none;
@@ -422,11 +548,11 @@
             align-items: center;
             justify-content: center;
         }
-        
+
         .close-modal:hover {
             color: var(--accent-primary);
         }
-        
+
         .expand-modal {
             background: none;
             border: none;
@@ -441,11 +567,11 @@
             justify-content: center;
             margin-right: 0.5rem;
         }
-        
+
         .expand-modal:hover {
             color: var(--accent-primary);
         }
-        
+
         /* Utility Classes */
         .text-center { text-align: center; }
         .text-right { text-align: right; }
@@ -455,46 +581,235 @@
         .flex-between { display: flex; justify-content: space-between; }
         .flex-gap { gap: 1rem; }
         .hidden { display: none !important; }
-        
+
         .stock-low {
             color: var(--warning);
             font-weight: bold;
+            font-family: var(--font-mono);
         }
-        
+
         .stock-ok {
             color: var(--success);
+            font-family: var(--font-mono);
         }
-        
+
         .clickable {
             cursor: pointer;
         }
-        
+
         .clickable:hover {
             color: var(--accent-primary);
         }
-        
+
         .grid-2 {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 1rem;
         }
-        
+
         @media (max-width: 768px) {
             .grid-2 {
                 grid-template-columns: 1fr;
             }
-            
+
             .main-content {
                 padding: 1rem;
             }
-            
+
             .app-header {
-                padding: 1rem;
+                padding: 0 1rem;
             }
-            
+
             .nav-tabs {
                 overflow-x: auto;
+                padding: 0 1rem;
             }
+        }
+
+        /* ── Tasks ─────────────────────────────────── */
+        .task-project-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .task-project-bar select {
+            flex: 1;
+            max-width: 340px;
+            padding: 7px 10px;
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-md);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 13px;
+        }
+
+        .task-list { list-style: none; }
+
+        .task-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-md);
+            margin-bottom: 6px;
+            transition: box-shadow 0.15s;
+        }
+
+        .task-item.dragging {
+            opacity: 0.45;
+            box-shadow: 0 4px 16px rgba(26,86,219,0.18);
+        }
+
+        .task-item.drag-over {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px rgba(26,86,219,0.18);
+        }
+
+        .task-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 12px;
+        }
+
+        .task-drag-handle {
+            cursor: grab;
+            color: var(--text-dim);
+            font-size: 14px;
+            line-height: 1;
+            padding: 2px 4px;
+            flex-shrink: 0;
+            user-select: none;
+        }
+
+        .task-drag-handle:active { cursor: grabbing; }
+
+        .task-checkbox {
+            width: 15px;
+            height: 15px;
+            flex-shrink: 0;
+            cursor: pointer;
+            accent-color: var(--accent-primary);
+        }
+
+        .task-title-text {
+            flex: 1;
+            font-size: 13.5px;
+            color: var(--text-primary);
+            cursor: text;
+            word-break: break-word;
+        }
+
+        .task-title-text.done {
+            text-decoration: line-through;
+            color: var(--text-dim);
+        }
+
+        .task-title-input {
+            flex: 1;
+            padding: 2px 6px;
+            border: 1px solid var(--accent-primary);
+            border-radius: var(--radius-sm);
+            font-family: var(--font-body);
+            font-size: 13.5px;
+            color: var(--text-primary);
+            background: #fff;
+            outline: none;
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+            opacity: 0;
+            transition: opacity 0.1s;
+        }
+
+        .task-row:hover .task-actions { opacity: 1; }
+
+        .task-action-btn {
+            padding: 2px 7px;
+            font-size: 11px;
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-sm);
+            background: var(--bg-body);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-family: var(--font-body);
+            white-space: nowrap;
+        }
+
+        .task-action-btn:hover {
+            background: var(--bg-light);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .task-action-btn.del:hover {
+            background: rgba(239,68,68,0.08);
+            border-color: rgba(239,68,68,0.4);
+            color: var(--danger);
+        }
+
+        /* Sub-tasks */
+        .subtask-list {
+            list-style: none;
+            margin: 0 12px 8px 36px;
+        }
+
+        .task-item.subtask {
+            border-style: dashed;
+            background: var(--bg-body);
+        }
+
+        .task-item.subtask .task-row { padding: 7px 10px; }
+        .task-item.subtask .task-title-text { font-size: 13px; }
+
+        /* Add-task inline form */
+        .add-task-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            padding: 0 2px;
+        }
+
+        .add-task-row input {
+            flex: 1;
+            padding: 7px 10px;
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-md);
+            font-family: var(--font-body);
+            font-size: 13px;
+            color: var(--text-primary);
+            background: var(--bg-card);
+        }
+
+        .add-task-row input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .task-empty {
+            padding: 32px 20px;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 13px;
+        }
+
+        .task-progress-bar {
+            height: 4px;
+            background: var(--border-card);
+            border-radius: 2px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .task-progress-fill {
+            height: 100%;
+            background: var(--accent-primary);
+            border-radius: 2px;
+            transition: width 0.3s;
         }
     </style>
 </head>
@@ -502,7 +817,13 @@
     <!-- Login Screen -->
     <div id="loginScreen" class="login-container">
         <div class="login-box">
-            <div class="login-title">◆ KI6CR</div>
+            <div style="text-align: center; margin-bottom: 24px;">
+                <div class="login-logo-icon">
+                    <div class="app-logo-diamond"></div>
+                </div>
+                <div class="login-title">KI6CR</div>
+                <div style="font-size: 10px; color: var(--text-dim); letter-spacing: 0.8px; text-transform: uppercase;">Inventory Manager</div>
+            </div>
             <form id="loginForm">
                 <div class="form-group">
                     <label class="form-label">Username</label>
@@ -512,7 +833,7 @@
                     <label class="form-label">Password</label>
                     <input type="password" id="loginPassword" class="form-input" required>
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Login</button>
+                <button type="submit" class="btn btn-primary login-btn">Login</button>
                 <div id="loginError" class="hidden" style="margin-top: 1rem; color: var(--danger); text-align: center;"></div>
             </form>
         </div>
@@ -521,10 +842,18 @@
     <!-- Main Application -->
     <div id="mainApp" class="hidden">
         <header class="app-header">
-            <div class="app-logo">KI6CR Inventory</div>
+            <div class="app-logo-block">
+                <div class="app-logo-icon">
+                    <div class="app-logo-diamond"></div>
+                </div>
+                <div>
+                    <div class="app-logo-callsign">KI6CR</div>
+                    <div class="app-logo-subtitle">Inventory Manager</div>
+                </div>
+            </div>
             <div class="user-info">
-                <span id="username"></span>
-                <button class="btn btn-small" onclick="logout()">Logout</button>
+                <span id="username" class="user-callsign"></span>
+                <button class="btn-ghost" onclick="logout()">Logout</button>
             </div>
         </header>
 
@@ -535,6 +864,7 @@
             <button class="nav-tab" onclick="showSection('orders')">Orders</button>
             <button class="nav-tab" onclick="window.location='quick_order.php'">Quick Order</button>
             <button class="nav-tab" onclick="showSection('business')">📊 Business</button>
+            <button class="nav-tab" onclick="showSection('tasks')">Tasks</button>
             <button class="nav-tab" onclick="showSection('settings')">Settings</button>
         </nav>
 
@@ -546,15 +876,15 @@
                         <div class="stat-value" id="statProjects">0</div>
                         <div class="stat-label">Active Projects</div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card stat-parts">
                         <div class="stat-value" id="statParts">0</div>
                         <div class="stat-label">Total Parts</div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card stat-low">
                         <div class="stat-value" id="statLowStock">0</div>
                         <div class="stat-label">Low Stock Alerts</div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card stat-orders">
                         <div class="stat-value" id="statOrders">0</div>
                         <div class="stat-label">Pending Orders</div>
                     </div>
@@ -565,14 +895,14 @@
                         <div class="card-header">
                             <h2 class="card-title">Low Stock Parts</h2>
                         </div>
-                        <div id="lowStockList"></div>
+                        <div id="lowStockList" class="card-body"></div>
                     </div>
 
                     <div class="card">
                         <div class="card-header">
                             <h2 class="card-title">Recent Orders</h2>
                         </div>
-                        <div id="recentOrdersList"></div>
+                        <div id="recentOrdersList" class="card-body"></div>
                     </div>
                 </div>
             </section>
@@ -691,6 +1021,7 @@
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
                     <div class="card">
+                        <div class="card-body">
                         <h3 style="margin-bottom: 1rem;">Inventory</h3>
                         <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
                             <span>Cost of Inventory on Hand:</span>
@@ -700,9 +1031,11 @@
                             <span>Unrealized Revenue (Potential):</span>
                             <strong id="metricUnrealizedRevenue">$0</strong>
                         </div>
+                        </div>
                     </div>
 
                     <div class="card">
+                        <div class="card-body">
                         <h3 style="margin-bottom: 1rem;">Orders</h3>
                         <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
                             <span>Total Orders:</span>
@@ -716,22 +1049,28 @@
                             <span>Total Shipping Costs:</span>
                             <strong id="metricShipping">$0</strong>
                         </div>
+                        </div>
                     </div>
                 </div>
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
                     <div class="card">
+                        <div class="card-body">
                         <h3 style="margin-bottom: 1rem;">Orders by Status</h3>
                         <div id="ordersByStatus">Loading...</div>
+                        </div>
                     </div>
 
                     <div class="card">
+                        <div class="card-body">
                         <h3 style="margin-bottom: 1rem;">Top Selling Projects</h3>
                         <div id="topProjects">Loading...</div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="card">
+                    <div class="card-body">
                     <h3 style="margin-bottom: 1rem;">P&L Breakdown</h3>
                     <table class="data-table">
                         <tr>
@@ -759,6 +1098,7 @@
                             <td style="text-align: right; font-weight: bold; color: var(--accent-primary);" id="plNet">$0</td>
                         </tr>
                     </table>
+                    </div>
                 </div>
             </section>
 
@@ -768,6 +1108,7 @@
                     <div class="card-header">
                         <h2 class="card-title">Settings</h2>
                     </div>
+                    <div class="card-body">
                     <form id="passwordForm">
                         <div class="form-group">
                             <label class="form-label">Current Password</label>
@@ -779,6 +1120,31 @@
                         </div>
                         <button type="submit" class="btn btn-primary">Change Password</button>
                     </form>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tasks" class="section">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Project Tasks</h2>
+                        <span id="taskProgressLabel" style="font-size:11px;color:var(--text-dim);"></span>
+                    </div>
+                    <div class="card-body">
+                        <div class="task-project-bar">
+                            <select id="taskProjectSelect" onchange="loadTasks()">
+                                <option value="">— Select a project —</option>
+                            </select>
+                        </div>
+                        <div id="taskProgressBar" class="task-progress-bar" style="display:none;">
+                            <div id="taskProgressFill" class="task-progress-fill" style="width:0%"></div>
+                        </div>
+                        <ul id="taskList" class="task-list"></ul>
+                        <div id="addRootTaskRow" class="add-task-row" style="display:none;">
+                            <input type="text" id="newRootTaskInput" placeholder="New task… (press Enter)" onkeydown="handleAddRootTask(event)">
+                            <button class="btn btn-primary" onclick="submitNewRootTask()">Add Task</button>
+                        </div>
+                    </div>
                 </div>
             </section>
         </main>
@@ -889,6 +1255,7 @@
                 // Small delay to ensure DOM is rendered
                 setTimeout(() => loadBusinessMetrics(), 100);
             }
+            if (sectionId === 'tasks') loadTasksSection();
         }
 
         // Dashboard
@@ -2676,6 +3043,296 @@
                 console.error('Error loading business metrics:', error);
                 alert('Error loading business metrics. Make sure business_metrics.php is uploaded.');
             }
+        }
+
+        // ── Tasks ──────────────────────────────────────────────────────────
+
+        let taskProjectId = null;
+        let taskData = [];          // flat array from server
+        let dragSrcItem = null;     // dragged DOM element
+        let dragSrcId   = null;
+
+        async function loadTasksSection() {
+            // Populate project dropdown from already-loaded projects list
+            const sel = document.getElementById('taskProjectSelect');
+            const prev = sel.value;
+            sel.innerHTML = '<option value="">— Select a project —</option>';
+            (projects || []).filter(p => p.status === 'active').forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = p.project_name;
+                sel.appendChild(opt);
+            });
+            if (prev) sel.value = prev;
+            if (sel.value) {
+                taskProjectId = parseInt(sel.value);
+                await loadTasks();
+            }
+        }
+
+        async function loadTasks() {
+            const sel = document.getElementById('taskProjectSelect');
+            taskProjectId = sel.value ? parseInt(sel.value) : null;
+            document.getElementById('addRootTaskRow').style.display = taskProjectId ? 'flex' : 'none';
+            document.getElementById('newRootTaskInput').value = '';
+            if (!taskProjectId) {
+                document.getElementById('taskList').innerHTML = '';
+                document.getElementById('taskProgressBar').style.display = 'none';
+                document.getElementById('taskProgressLabel').textContent = '';
+                return;
+            }
+            try {
+                const resp = await fetch('api.php?action=get_tasks&project_id=' + taskProjectId);
+                taskData = await resp.json();
+                renderTasks();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function renderTasks() {
+            const roots = taskData.filter(t => !t.parent_id).sort((a,b) => a.sort_order - b.sort_order);
+            const list  = document.getElementById('taskList');
+
+            // Progress
+            const total = taskData.length;
+            const done  = taskData.filter(t => t.is_done == 1).length;
+            const bar   = document.getElementById('taskProgressBar');
+            const fill  = document.getElementById('taskProgressFill');
+            const label = document.getElementById('taskProgressLabel');
+            if (total > 0) {
+                bar.style.display = 'block';
+                fill.style.width  = Math.round(done/total*100) + '%';
+                label.textContent = done + ' of ' + total + ' done';
+            } else {
+                bar.style.display = 'none';
+                label.textContent = '';
+            }
+
+            if (roots.length === 0) {
+                list.innerHTML = '<li class="task-empty">No tasks yet — add one below.</li>';
+                return;
+            }
+
+            list.innerHTML = '';
+            roots.forEach(t => list.appendChild(buildTaskEl(t, false)));
+        }
+
+        function buildTaskEl(task, isSubtask) {
+            const children = taskData.filter(t => t.parent_id == task.id).sort((a,b) => a.sort_order - b.sort_order);
+            const li = document.createElement('li');
+            li.className = 'task-item' + (isSubtask ? ' subtask' : '');
+            li.dataset.id       = task.id;
+            li.dataset.parentId = task.parent_id || '';
+            li.draggable = true;
+
+            li.innerHTML = `
+                <div class="task-row">
+                    <span class="task-drag-handle" title="Drag to reorder">⠿</span>
+                    <input type="checkbox" class="task-checkbox" ${task.is_done == 1 ? 'checked' : ''}
+                        onchange="toggleTask(${task.id}, this.checked)">
+                    <span class="task-title-text ${task.is_done == 1 ? 'done' : ''}"
+                        ondblclick="startEditTask(this, ${task.id})">${escHtml(task.title)}</span>
+                    <input type="text" class="task-title-input" style="display:none"
+                        value="${escHtml(task.title)}"
+                        onblur="commitEditTask(this, ${task.id})"
+                        onkeydown="editTaskKeydown(event, this, ${task.id})">
+                    <div class="task-actions">
+                        ${!isSubtask ? `<button class="task-action-btn" onclick="showAddSubtask(${task.id})">+ Sub-task</button>` : ''}
+                        <button class="task-action-btn del" onclick="deleteTask(${task.id})">✕</button>
+                    </div>
+                </div>
+                ${!isSubtask ? `<ul class="subtask-list" id="subtasks-${task.id}"></ul>
+                <div class="add-task-row" id="addSub-${task.id}" style="display:none;margin:0 12px 10px 36px;">
+                    <input type="text" placeholder="Sub-task… (Enter to add)"
+                        onkeydown="handleAddSubtask(event, ${task.id})">
+                    <button class="btn" onclick="this.previousElementSibling.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))">Add</button>
+                </div>` : ''}
+            `;
+
+            // Drag events
+            li.addEventListener('dragstart', onDragStart);
+            li.addEventListener('dragover',  onDragOver);
+            li.addEventListener('dragleave', onDragLeave);
+            li.addEventListener('drop',      onDrop);
+            li.addEventListener('dragend',   onDragEnd);
+
+            // Render children into their slot
+            if (!isSubtask && children.length) {
+                const subList = li.querySelector(`#subtasks-${task.id}`);
+                children.forEach(c => subList.appendChild(buildTaskEl(c, true)));
+            }
+
+            return li;
+        }
+
+        // ── Editing ────────────────────────────────
+
+        function startEditTask(spanEl, id) {
+            const input = spanEl.nextElementSibling;
+            spanEl.style.display = 'none';
+            input.style.display  = 'block';
+            input.focus();
+            input.select();
+        }
+
+        function editTaskKeydown(e, input, id) {
+            if (e.key === 'Enter')  { input.blur(); }
+            if (e.key === 'Escape') {
+                const span = input.previousElementSibling;
+                input.style.display = 'none';
+                span.style.display  = '';
+            }
+        }
+
+        async function commitEditTask(input, id) {
+            const span  = input.previousElementSibling;
+            const title = input.value.trim();
+            if (!title) { input.style.display='none'; span.style.display=''; return; }
+
+            const task = taskData.find(t => t.id == id);
+            if (title === task.title) { input.style.display='none'; span.style.display=''; return; }
+
+            const fd = new FormData();
+            fd.append('action','save_task');
+            fd.append('id', id);
+            fd.append('project_id', taskProjectId);
+            fd.append('parent_id', task.parent_id ?? '');
+            fd.append('title', title);
+            fd.append('notes', task.notes ?? '');
+            await fetch('api.php', {method:'POST', body:fd});
+            await loadTasks();
+        }
+
+        // ── Toggle / Delete ────────────────────────
+
+        async function toggleTask(id, checked) {
+            const fd = new FormData();
+            fd.append('action','toggle_task');
+            fd.append('id', id);
+            fd.append('is_done', checked ? 1 : 0);
+            await fetch('api.php', {method:'POST', body:fd});
+            // Update local state and re-render without full server round-trip
+            const t = taskData.find(t => t.id == id);
+            if (t) t.is_done = checked ? 1 : 0;
+            renderTasks();
+        }
+
+        async function deleteTask(id) {
+            if (!confirm('Delete this task and all its sub-tasks?')) return;
+            const fd = new FormData();
+            fd.append('action','delete_task');
+            fd.append('id', id);
+            await fetch('api.php', {method:'POST', body:fd});
+            await loadTasks();
+        }
+
+        // ── Add tasks ─────────────────────────────
+
+        function handleAddRootTask(e) { if (e.key === 'Enter') submitNewRootTask(); }
+
+        async function submitNewRootTask() {
+            const input = document.getElementById('newRootTaskInput');
+            const title = input.value.trim();
+            if (!title || !taskProjectId) return;
+            const fd = new FormData();
+            fd.append('action','save_task');
+            fd.append('project_id', taskProjectId);
+            fd.append('parent_id', '');
+            fd.append('title', title);
+            fd.append('notes', '');
+            await fetch('api.php', {method:'POST', body:fd});
+            input.value = '';
+            await loadTasks();
+        }
+
+        function showAddSubtask(parentId) {
+            const row = document.getElementById('addSub-' + parentId);
+            if (!row) return;
+            row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+            if (row.style.display === 'flex') row.querySelector('input').focus();
+        }
+
+        async function handleAddSubtask(e, parentId) {
+            if (e.key !== 'Enter') return;
+            const input = e.target;
+            const title = input.value.trim();
+            if (!title) return;
+            const fd = new FormData();
+            fd.append('action','save_task');
+            fd.append('project_id', taskProjectId);
+            fd.append('parent_id', parentId);
+            fd.append('title', title);
+            fd.append('notes', '');
+            await fetch('api.php', {method:'POST', body:fd});
+            input.value = '';
+            await loadTasks();
+            // Re-open the add-sub row so user can keep adding
+            showAddSubtask(parentId);
+        }
+
+        // ── Drag-and-drop reorder ──────────────────
+
+        function onDragStart(e) {
+            dragSrcItem = this;
+            dragSrcId   = parseInt(this.dataset.id);
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', this.dataset.id);
+        }
+
+        function onDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            // Only allow drops within same level (same parent)
+            if (this !== dragSrcItem && this.dataset.parentId === dragSrcItem.dataset.parentId) {
+                this.classList.add('drag-over');
+            }
+        }
+
+        function onDragLeave() { this.classList.remove('drag-over'); }
+        function onDragEnd()   { document.querySelectorAll('.task-item').forEach(el => { el.classList.remove('dragging','drag-over'); }); }
+
+        async function onDrop(e) {
+            e.preventDefault();
+            this.classList.remove('drag-over');
+            if (this === dragSrcItem) return;
+            if (this.dataset.parentId !== dragSrcItem.dataset.parentId) return; // different level, ignore
+
+            const parent = this.parentElement;
+            const items  = Array.from(parent.children).filter(el => el.classList.contains('task-item'));
+            const srcIdx = items.indexOf(dragSrcItem);
+            const dstIdx = items.indexOf(this);
+            if (srcIdx === -1 || dstIdx === -1) return;
+
+            // Reorder DOM
+            if (srcIdx < dstIdx) {
+                parent.insertBefore(dragSrcItem, this.nextSibling);
+            } else {
+                parent.insertBefore(dragSrcItem, this);
+            }
+
+            // Persist new order
+            const reordered = Array.from(parent.children)
+                .filter(el => el.classList.contains('task-item'))
+                .map((el, i) => ({ id: parseInt(el.dataset.id), sort_order: i }));
+
+            const fd = new FormData();
+            fd.append('action','reorder_tasks');
+            fd.append('items', JSON.stringify(reordered));
+            await fetch('api.php', {method:'POST', body:fd});
+
+            // Update local taskData sort_order to match
+            reordered.forEach(r => {
+                const t = taskData.find(t => t.id === r.id);
+                if (t) t.sort_order = r.sort_order;
+            });
+        }
+
+        // ── Utility ───────────────────────────────
+
+        function escHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
     </script>
 </body>

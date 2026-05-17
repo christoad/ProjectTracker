@@ -766,6 +766,69 @@ if ($action === 'send_invoice') {
     );
 }
 
+// Tasks
+if ($action === 'get_tasks') {
+    $project_id = (int)($_GET['project_id'] ?? 0);
+    if (!$project_id) jsonResponse(['error' => 'project_id required'], 400);
+    $stmt = $db->prepare("SELECT * FROM project_tasks WHERE project_id = ? ORDER BY COALESCE(parent_id, 0), sort_order, id");
+    $stmt->execute([$project_id]);
+    jsonResponse($stmt->fetchAll());
+}
+
+if ($action === 'save_task') {
+    $id         = (int)($_POST['id'] ?? 0);
+    $project_id = (int)($_POST['project_id'] ?? 0);
+    $parent_id  = $_POST['parent_id'] !== '' ? (int)$_POST['parent_id'] : null;
+    $title      = trim($_POST['title'] ?? '');
+    $notes      = trim($_POST['notes'] ?? '');
+
+    if (!$project_id || $title === '') jsonResponse(['error' => 'project_id and title required'], 400);
+
+    if ($id) {
+        $stmt = $db->prepare("UPDATE project_tasks SET title=?, notes=?, updated_at=NOW() WHERE id=? AND project_id=?");
+        $stmt->execute([$title, $notes, $id, $project_id]);
+        jsonResponse(['success' => true, 'id' => $id]);
+    } else {
+        // Place at end of sibling group
+        $stmt = $db->prepare("SELECT COALESCE(MAX(sort_order),0)+1 FROM project_tasks WHERE project_id=? AND " . ($parent_id === null ? "parent_id IS NULL" : "parent_id=?"));
+        if ($parent_id === null) {
+            $stmt->execute([$project_id]);
+        } else {
+            $stmt->execute([$project_id, $parent_id]);
+        }
+        $sort = (int)$stmt->fetchColumn();
+        $stmt = $db->prepare("INSERT INTO project_tasks (project_id, parent_id, title, notes, sort_order) VALUES (?,?,?,?,?)");
+        $stmt->execute([$project_id, $parent_id, $title, $notes, $sort]);
+        jsonResponse(['success' => true, 'id' => $db->lastInsertId()]);
+    }
+}
+
+if ($action === 'toggle_task') {
+    $id      = (int)($_POST['id'] ?? 0);
+    $is_done = (int)($_POST['is_done'] ?? 0);
+    $stmt = $db->prepare("UPDATE project_tasks SET is_done=?, updated_at=NOW() WHERE id=?");
+    $stmt->execute([$is_done, $id]);
+    jsonResponse(['success' => true]);
+}
+
+if ($action === 'delete_task') {
+    $id = (int)($_POST['id'] ?? 0);
+    // Children cascade via FK; delete parent first to let FK do the work
+    $stmt = $db->prepare("DELETE FROM project_tasks WHERE id=?");
+    $stmt->execute([$id]);
+    jsonResponse(['success' => true]);
+}
+
+if ($action === 'reorder_tasks') {
+    $items = json_decode($_POST['items'] ?? '[]', true);
+    if (!is_array($items)) jsonResponse(['error' => 'invalid items'], 400);
+    $stmt = $db->prepare("UPDATE project_tasks SET sort_order=? WHERE id=?");
+    foreach ($items as $item) {
+        $stmt->execute([(int)$item['sort_order'], (int)$item['id']]);
+    }
+    jsonResponse(['success' => true]);
+}
+
 // Change password
 if ($action === 'change_password') {
     $current = $_POST['current_password'] ?? '';
