@@ -3053,7 +3053,13 @@
         let dragSrcId   = null;
 
         async function loadTasksSection() {
-            // Populate project dropdown from already-loaded projects list
+            // Ensure projects are loaded (may not be if Tasks tab opened first)
+            if (!projects || projects.length === 0) {
+                try {
+                    const r = await fetch('api.php?action=get_projects');
+                    projects = await r.json();
+                } catch(e) { console.error(e); }
+            }
             const sel = document.getElementById('taskProjectSelect');
             const prev = sel.value;
             sel.innerHTML = '<option value="">— Select a project —</option>';
