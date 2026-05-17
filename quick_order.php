@@ -151,145 +151,229 @@ $projects = $db->query("SELECT id, project_name, retail_price FROM projects WHER
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quick Order Entry - KI6CR</title>
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-dark: #f8f9fa;
-            --bg-medium: #ffffff;
-            --accent-primary: #2563eb;
-            --text-primary: #1f2937;
-            --text-secondary: #6b7280;
-            --border-color: #e5e7eb;
-            --success: #10b981;
-            --warning: #f59e0b;
+          --bg-body:            #e8f0fe;
+          --bg-card:            #f4f8ff;
+          --bg-card-header:     #eef3fd;
+          --bg-dark:            #e8f0fe;
+          --bg-medium:          #f4f8ff;
+          --bg-light:           #c7d9fb;
+          --header-gradient:    linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
+          --header-height:      56px;
+          --nav-bg:             #162038;
+          --nav-border-bottom:  #1a56db;
+          --accent-primary:     #1a56db;
+          --accent-primary-dim: #1240a8;
+          --border-card:        #c7d9fb;
+          --border-color:       #c7d9fb;
+          --text-primary:       #0f1c3f;
+          --text-secondary:     #6b7280;
+          --text-dim:           #9ca3af;
+          --success:            #10b981;
+          --warning:            #f59e0b;
+          --danger:             #ef4444;
+          --shadow-card:        0 2px 8px rgba(10,30,100,0.06);
+          --shadow-header:      0 2px 16px rgba(15,28,63,0.22);
+          --font-body:          'Figtree', sans-serif;
+          --font-mono:          'IBM Plex Mono', monospace;
+          --radius-sm:          3px;
+          --radius-md:          4px;
+          --radius-card:        6px;
         }
-        
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--bg-dark);
+            font-family: var(--font-body);
+            background: var(--bg-body);
             color: var(--text-primary);
-            margin: 0;
-            padding: 2rem;
+            line-height: 1.6;
         }
-        
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: var(--bg-medium);
-            padding: 2rem;
+
+        .app-header {
+            background: var(--header-gradient);
+            height: var(--header-height);
+            padding: 0 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--shadow-header);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .app-logo-block { display: flex; align-items: center; gap: 12px; }
+        .app-logo-icon {
+            width: 32px; height: 32px;
+            border: 2px solid rgba(255,255,255,0.35);
             border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex; align-items: center; justify-content: center;
         }
-        
-        h1 {
-            color: var(--accent-primary);
-            margin-top: 0;
+        .app-logo-diamond {
+            width: 12px; height: 12px;
+            background: #fff;
+            transform: rotate(45deg);
+            border-radius: 2px;
+            opacity: 0.92;
         }
-        
-        .btn {
-            padding: 0.75rem 1.5rem;
-            background: var(--accent-primary);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 1rem;
+        .app-logo-callsign { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: #fff; letter-spacing: 2.5px; line-height: 1.1; }
+        .app-logo-subtitle { font-size: 10px; color: rgba(255,255,255,0.58); letter-spacing: 0.8px; text-transform: uppercase; }
+
+        .btn-ghost {
+            padding: 5px 14px;
+            background: rgba(255,255,255,0.10);
+            border: 1px solid rgba(255,255,255,0.22);
+            color: rgba(255,255,255,0.82);
+            border-radius: var(--radius-md);
+            font-size: 12px; cursor: pointer;
+            font-family: var(--font-body); font-weight: 500;
+            text-decoration: none; display: inline-block;
         }
-        
-        .btn:hover {
-            background: #1d4ed8;
+        .btn-ghost:hover { background: rgba(255,255,255,0.18); }
+
+        .page-body {
+            max-width: 900px;
+            margin: 28px auto;
+            padding: 0 20px 40px;
         }
-        
-        .form-group {
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-card);
+            padding: 0;
             margin-bottom: 1.5rem;
+            box-shadow: var(--shadow-card);
         }
-        
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 13px 20px;
+            background: var(--bg-card-header);
+            border-bottom: 1px solid var(--border-card);
+            border-radius: var(--radius-card) var(--radius-card) 0 0;
+        }
+
+        .card-title {
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+        }
+
+        .card-body { padding: 20px 24px; }
+
+        .btn {
+            padding: 6px 15px;
+            background: var(--accent-primary);
+            border: 1px solid var(--accent-primary);
+            color: #fff;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-family: var(--font-body);
+            font-size: 12px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn:hover { background: var(--accent-primary-dim); border-color: var(--accent-primary-dim); }
+        .btn-secondary {
+            background: #e8f0fe;
+            border-color: var(--border-card);
+            color: var(--accent-primary);
+        }
+        .btn-secondary:hover { background: var(--bg-light); border-color: var(--accent-primary); color: var(--accent-primary); }
+
+        .form-group { margin-bottom: 1rem; }
         .form-label {
             display: block;
-            margin-bottom: 0.5rem;
+            margin-bottom: 5px;
+            font-size: 10.5px;
             font-weight: 600;
-            font-size: 0.9rem;
             color: var(--text-secondary);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.8px;
         }
-        
-        .form-input,
-        .form-textarea,
-        .form-select {
+        .form-input, .form-textarea, .form-select {
             width: 100%;
-            padding: 0.75rem;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            font-family: inherit;
-            font-size: 1rem;
+            padding: 8px 12px;
+            background: #fff;
+            border: 1px solid var(--border-card);
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            border-radius: var(--radius-md);
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
-        
-        .form-textarea {
-            min-height: 200px;
-            font-family: monospace;
+        .form-input:focus, .form-textarea:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(26,86,219,0.12);
         }
-        
+        .form-textarea { min-height: 200px; resize: vertical; }
+
         .instructions {
-            background: #eff6ff;
+            background: rgba(26,86,219,0.06);
             border-left: 4px solid var(--accent-primary);
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            border-radius: 4px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            border-radius: 0 var(--radius-card) var(--radius-card) 0;
         }
-        
-        .instructions h3 {
-            margin-top: 0;
-            color: var(--accent-primary);
-        }
-        
-        .back-link {
-            color: var(--accent-primary);
-            text-decoration: none;
-        }
-        
-        .back-link:hover {
-            text-decoration: underline;
-        }
-        
+        .instructions h3 { margin-top: 0; color: var(--accent-primary); font-size: 13px; margin-bottom: 8px; }
+
         .example-email {
-            background: #f9fafb;
-            padding: 1rem;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 0.85rem;
-            margin: 1rem 0;
+            background: var(--bg-card-header);
+            padding: 12px 16px;
+            border-radius: var(--radius-md);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            margin: 12px 0;
             white-space: pre-wrap;
+            border: 1px solid var(--border-card);
         }
-        
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-        }
-        
-        @media (max-width: 768px) {
-            .grid-2 {
-                grid-template-columns: 1fr;
-            }
-        }
-        
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
         .preview-card {
-            background: #f0fdf4;
-            border: 2px solid var(--success);
-            padding: 1.5rem;
-            border-radius: 8px;
-            margin: 2rem 0;
+            background: rgba(16,185,129,0.07);
+            border: 1px solid rgba(16,185,129,0.35);
+            padding: 14px 18px;
+            border-radius: var(--radius-card);
+            margin-bottom: 20px;
         }
-        
-        .preview-card h3 {
-            margin-top: 0;
-            color: var(--success);
+        .preview-card h3 { margin-top: 0; color: var(--success); font-size: 13px; }
+
+        .back-link { color: var(--accent-primary); text-decoration: none; font-size: 13px; }
+        .back-link:hover { text-decoration: underline; }
+
+        @media (max-width: 640px) {
+            .grid-2 { grid-template-columns: 1fr; }
+            .page-body { padding: 0 12px 24px; margin-top: 16px; }
+            .app-header { padding: 0 16px; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>⚡ Quick Order Entry</h1>
+    <header class="app-header">
+        <div class="app-logo-block">
+            <div class="app-logo-icon"><div class="app-logo-diamond"></div></div>
+            <div>
+                <div class="app-logo-callsign">KI6CR</div>
+                <div class="app-logo-subtitle">Inventory Manager</div>
+            </div>
+        </div>
+        <a href="index.php" class="btn-ghost">← Main App</a>
+    </header>
+    <div class="page-body">
+    <div class="card">
+        <div class="card-header"><span class="card-title">Quick Order Entry</span></div>
+        <div class="card-body">
         
         <?php echo $message; ?>
         
@@ -324,7 +408,7 @@ Notes: Please ship ASAP</div>
                 <textarea name="email_content" class="form-textarea" placeholder="Paste your WPForms notification email here..." required></textarea>
             </div>
             
-            <button type="submit" class="btn">📧 Parse Email</button>
+            <button type="submit" class="btn">Parse Email</button>
         </form>
         
         <?php else: ?>
@@ -403,15 +487,17 @@ Notes: Please ship ASAP</div>
             
             <div style="display: flex; gap: 1rem;">
                 <button type="submit" class="btn">✓ Create Order</button>
-                <a href="quick_order.php" class="btn" style="background: #6b7280; text-decoration: none; display: inline-block;">← Parse Another Email</a>
+                <a href="quick_order.php" class="btn btn-secondary">← Parse Another Email</a>
             </div>
         </form>
-        
+
         <?php endif; ?>
-        
-        <p style="margin-top: 2rem;">
+
+        <p style="margin-top: 1.5rem;">
             <a href="index.php" class="back-link">← Back to Inventory Manager</a>
         </p>
+        </div>
+    </div>
     </div>
 </body>
 </html>

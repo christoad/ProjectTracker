@@ -35,65 +35,97 @@ if (!$ship_zip_fallback && !empty($order['shipping_address'])) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= htmlspecialchars($order['order_number']) ?> — KI6CR Orders</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
-    --bg-dark: #f8f9fa; --bg-medium: #ffffff; --bg-light: #f1f3f5;
-    --accent: #2563eb; --accent-dim: #1d4ed8;
-    --text: #1f2937; --text-sec: #6b7280;
-    --border: #e5e7eb;
-    --success: #10b981; --warning: #f59e0b; --danger: #ef4444; --info: #3b82f6;
+  --bg-body:            #e8f0fe;
+  --bg-card:            #f4f8ff;
+  --bg-card-header:     #eef3fd;
+  --bg-dark:            #e8f0fe;
+  --bg-medium:          #f4f8ff;
+  --bg-light:           #c7d9fb;
+  --header-gradient:    linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
+  --header-height:      56px;
+  --accent:             #1a56db;
+  --accent-dim:         #1240a8;
+  --text:               #0f1c3f;
+  --text-sec:           #6b7280;
+  --border:             #c7d9fb;
+  --success:            #10b981;
+  --warning:            #f59e0b;
+  --danger:             #ef4444;
+  --info:               #3b82f6;
+  --shadow-card:        0 2px 8px rgba(10,30,100,0.06);
+  --shadow-header:      0 2px 16px rgba(15,28,63,0.22);
+  --font-body:          'Figtree', sans-serif;
+  --font-mono:          'IBM Plex Mono', monospace;
+  --radius-md:          4px;
+  --radius-card:        6px;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Courier New', Monaco, monospace; background: var(--bg-dark); color: var(--text); line-height: 1.6; }
-.app-header { background: var(--bg-medium); border-bottom: 2px solid var(--accent); padding: 0.85rem 2rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+body { font-family: var(--font-body); background: var(--bg-body); color: var(--text); line-height: 1.6; }
+.app-header { background: var(--header-gradient); height: var(--header-height); padding: 0 32px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow-header); }
+.app-logo-block { display: flex; align-items: center; gap: 12px; }
+.app-logo-icon { width: 32px; height: 32px; border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.app-logo-diamond { width: 12px; height: 12px; background: #fff; transform: rotate(45deg); border-radius: 2px; opacity: 0.92; }
+.app-logo-callsign { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: #fff; letter-spacing: 2.5px; line-height: 1.1; }
+.app-logo-subtitle { font-size: 10px; color: rgba(255,255,255,0.58); letter-spacing: 0.8px; text-transform: uppercase; }
 .page-body { max-width: 920px; margin: 1.75rem auto; padding: 0 1.5rem 3rem; }
-.card { background: var(--bg-medium); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1.5rem; }
-.card-header { padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-.card-title { font-size: 0.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: var(--text-sec); }
-.card-body { padding: 1.5rem; }
-.form-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-sec); margin-bottom: 0.2rem; }
-.form-input, .form-select, .form-textarea { width: 100%; padding: 0.45rem 0.7rem; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; font-size: 0.9rem; background: var(--bg-medium); color: var(--text); }
-.form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-card); margin-bottom: 1.5rem; box-shadow: var(--shadow-card); }
+.card-header { padding: 13px 20px; background: var(--bg-card-header); border-bottom: 1px solid var(--border); border-radius: var(--radius-card) var(--radius-card) 0 0; display: flex; justify-content: space-between; align-items: center; }
+.card-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.9px; color: var(--text); }
+.card-body { padding: 20px; }
+.form-label { display: block; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-sec); margin-bottom: 4px; }
+.form-input, .form-select, .form-textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 13px; background: #fff; color: var(--text); transition: border-color 0.15s, box-shadow 0.15s; }
+.form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(26,86,219,0.12); }
 .form-textarea { min-height: 70px; resize: vertical; }
 .form-group { margin-bottom: 1rem; }
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
 .g4 { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0.75rem; }
 .flex { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
-.btn { padding: 0.4rem 0.9rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-light); color: var(--text); cursor: pointer; font-family: inherit; font-size: 0.85rem; text-decoration: none; display: inline-block; white-space: nowrap; }
-.btn:hover { background: var(--border); }
-.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
-.btn-primary:hover { background: var(--accent-dim); }
-.btn-success { background: var(--success); color: white; border-color: var(--success); }
-.btn-danger { background: var(--danger); color: white; border-color: var(--danger); }
-.badge { padding: 0.2rem 0.65rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
-.badge-warning { background: #fef3c7; color: #92400e; }
-.badge-info    { background: #dbeafe; color: #1e40af; }
-.badge-success { background: #d1fae5; color: #065f46; }
-.badge-danger  { background: #fee2e2; color: #991b1b; }
+.btn { padding: 5px 12px; border: 1px solid var(--border); border-radius: 3px; background: #e8f0fe; color: var(--accent); cursor: pointer; font-family: var(--font-body); font-size: 11px; font-weight: 500; text-decoration: none; display: inline-block; white-space: nowrap; transition: all 0.15s; }
+.btn:hover { background: var(--bg-light); border-color: var(--accent); }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; border-radius: var(--radius-md); }
+.btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: white; }
+.btn-success { background: rgba(16,185,129,0.12); color: var(--success); border: 1px solid rgba(16,185,129,0.35); }
+.btn-success:hover { background: rgba(16,185,129,0.2); }
+.btn-danger { background: rgba(239,68,68,0.10); color: var(--danger); border: 1px solid rgba(239,68,68,0.27); }
+.btn-danger:hover { background: rgba(239,68,68,0.18); }
+.badge { padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.badge-warning { background: rgba(245,158,11,0.13); color: var(--warning); }
+.badge-info    { background: rgba(59,130,246,0.13); color: var(--info); }
+.badge-success { background: rgba(16,185,129,0.13); color: var(--success); }
+.badge-danger  { background: rgba(239,68,68,0.13); color: var(--danger); }
 .divider { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
-.notice { padding: 0.6rem 0.9rem; border-radius: 4px; font-size: 0.85rem; margin-top: 0.5rem; }
-.n-info    { background: #dbeafe; color: #1e40af; }
-.n-success { background: #d1fae5; color: #065f46; }
-.n-warning { background: #fef3c7; color: #92400e; }
-.n-danger  { background: #fee2e2; color: #991b1b; }
-.tracking-result { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: var(--bg-light); border-radius: 4px; font-size: 0.85rem; border: 1px solid var(--border); }
+.notice { padding: 0.6rem 0.9rem; border-radius: var(--radius-md); font-size: 12px; margin-top: 0.5rem; }
+.n-info    { background: rgba(59,130,246,0.10); color: #1e40af; }
+.n-success { background: rgba(16,185,129,0.10); color: #065f46; }
+.n-warning { background: rgba(245,158,11,0.10); color: #92400e; }
+.n-danger  { background: rgba(239,68,68,0.10); color: #991b1b; }
+.tracking-result { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: var(--bg-card-header); border-radius: var(--radius-md); font-size: 12px; border: 1px solid var(--border); font-family: var(--font-mono); }
 @media (max-width: 640px) {
     .g2, .g3, .g4 { grid-template-columns: 1fr; }
     .page-body { padding: 0 1rem 2rem; }
-    .app-header { padding: 0.75rem 1rem; }
+    .app-header { padding: 0 1rem; }
 }
 </style>
 </head>
 <body>
 
 <div class="app-header">
+    <div class="app-logo-block">
+        <div class="app-logo-icon"><div class="app-logo-diamond"></div></div>
+        <div>
+            <div class="app-logo-callsign">KI6CR</div>
+            <div class="app-logo-subtitle">Inventory Manager</div>
+        </div>
+    </div>
     <div class="flex">
-        <a href="index.php" class="btn" style="font-size:0.8rem;">← Orders</a>
-        <strong style="color:var(--accent);"><?= htmlspecialchars($order['order_number']) ?></strong>
+        <a href="index.php" class="btn" style="background:rgba(255,255,255,0.10);border-color:rgba(255,255,255,0.22);color:rgba(255,255,255,0.82);">← Orders</a>
+        <span style="font-family:'IBM Plex Mono',monospace;color:#fff;font-weight:700;font-size:13px;"><?= htmlspecialchars($order['order_number']) ?></span>
         <span class="badge badge-<?= statusBadge($order['status']) ?>"><?= htmlspecialchars($order['status']) ?></span>
     </div>
-    <span style="color:var(--text-sec); font-size:0.85rem;">KI6CR Inventory</span>
 </div>
 
 <div class="page-body">

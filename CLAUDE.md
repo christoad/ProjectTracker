@@ -84,6 +84,98 @@ The customer-facing storefront will be a WooCommerce store on **KI6CR-labs.com**
 
 **Projects table will need:** `wc_product_id` column to map each kit to its WooCommerce product.
 
+## UI Design System
+
+The site uses a consistent design system across all pages. When adding new pages or UI components, match these specifications exactly.
+
+### Fonts (Google Fonts)
+```html
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+```
+- **UI text / labels / buttons:** `Figtree, sans-serif`
+- **Data / numbers / order IDs / callsigns / part numbers:** `IBM Plex Mono, monospace`
+
+### Color Tokens (copy this `:root` block into any new page)
+```css
+:root {
+  --bg-body: #e8f0fe;           /* page background */
+  --bg-card: #f4f8ff;           /* card / panel */
+  --bg-card-header: #eef3fd;    /* card header strip & table head */
+  --bg-card-alt-row: #f8fafe;   /* alternating table row */
+  --bg-light: #c7d9fb;          /* secondary button bg, tints */
+  --header-gradient: linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
+  --header-height: 56px;
+  --nav-bg: #162038;
+  --nav-border-bottom: #1a56db;
+  --nav-tab-active-bg: #1a56db;
+  --nav-tab-color: #5d729e;
+  --accent-primary: #1a56db;
+  --accent-primary-dim: #1240a8;
+  --accent-secondary: #0680c6;
+  --border-card: #c7d9fb;
+  --border-table-head: #1a56db;
+  --text-primary: #0f1c3f;
+  --text-secondary: #6b7280;
+  --text-dim: #9ca3af;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #3b82f6;
+  --shadow-card: 0 2px 8px rgba(10,30,100,0.06);
+  --shadow-header: 0 2px 16px rgba(15,28,63,0.22);
+  --shadow-modal: 0 20px 60px rgba(0,0,0,0.30);
+  --font-body: 'Figtree', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-card: 6px;
+  --radius-modal: 8px;
+  --z-header: 100;
+  --z-modal: 1000;
+}
+```
+
+### Page Structure (every page)
+Every page — including new ones — must have:
+1. A gradient app header (`<header class="app-header">`) with the diamond logo block on the left and navigation/actions on the right.
+2. Content area with `padding: 20px 32px` and `max-width: 1400px` (or use `.page-body` for narrower pages like order_detail).
+
+**Header HTML pattern:**
+```html
+<header class="app-header">
+  <div class="app-logo-block">
+    <div class="app-logo-icon"><div class="app-logo-diamond"></div></div>
+    <div>
+      <div class="app-logo-callsign">KI6CR</div>
+      <div class="app-logo-subtitle">Inventory Manager</div>
+    </div>
+  </div>
+  <div class="user-info">
+    <!-- nav buttons / logout -->
+  </div>
+</header>
+```
+
+### Cards
+Cards have `padding: 0`. Use `.card-header` (with `.card-title`) for the header strip and `.card-body` for content. Tables sit directly inside `.card` inside a `.table-container` — no extra padding.
+
+### Badges
+Use translucent backgrounds, not solid colors:
+- `.badge-success`: `rgba(16,185,129,0.13)` / `#10b981`
+- `.badge-warning`: `rgba(245,158,11,0.13)` / `#f59e0b`
+- `.badge-danger`: `rgba(239,68,68,0.13)` / `#ef4444`
+- `.badge-info`: `rgba(59,130,246,0.13)` / `#3b82f6`
+
+### Files that implement the design system
+| File | Notes |
+|------|-------|
+| `index.php` | Full implementation — use this as the reference |
+| `order_detail.php` | Standalone page pattern (narrow `.page-body`) |
+| `quick_order.php` | Standalone page with card + form pattern |
+| `invoice.php` | Print-focused; fonts updated, gradient header |
+
+---
+
 ## What Was Removed (USPS)
 
 The USPS API integration (address validation, rate lookup, tracking, label generation) was fully removed in May 2026. The shipping weight and dimension fields (`ship_weight_oz`, `pkg_length`, `pkg_width`, `pkg_height`) on the `projects` table were kept — they remain useful for shipping calculations. The `mail_service` and `tracking_number` fields on `orders` were also kept for manual entry.
