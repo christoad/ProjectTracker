@@ -766,6 +766,17 @@
         .task-item.subtask .task-row { padding: 7px 10px; }
         .task-item.subtask .task-title-text { font-size: 13px; }
 
+        /* Sub-sub-tasks */
+        .task-item.subsubtask {
+            border-style: dotted;
+            background: var(--bg-card-alt-row);
+        }
+
+        .task-item.subsubtask .task-row { padding: 5px 10px; }
+        .task-item.subsubtask .task-title-text { font-size: 12px; }
+
+        .task-item.subtask .subtask-list { margin: 0 12px 8px 24px; }
+
         /* Add-task inline form */
         .add-task-row {
             display: flex;
@@ -862,7 +873,6 @@
             <button class="nav-tab" onclick="showSection('projects')">Projects</button>
             <button class="nav-tab" onclick="showSection('parts')">Parts Inventory</button>
             <button class="nav-tab" onclick="showSection('orders')">Orders</button>
-            <button class="nav-tab" onclick="window.location='quick_order.php'">Quick Order</button>
             <button class="nav-tab" onclick="showSection('business')">📊 Business</button>
             <button class="nav-tab" onclick="showSection('tasks')">Tasks</button>
             <button class="nav-tab" onclick="showSection('settings')">Settings</button>
@@ -3121,16 +3131,22 @@
             }
 
             list.innerHTML = '';
-            roots.forEach(t => list.appendChild(buildTaskEl(t, false)));
+            roots.forEach(t => list.appendChild(buildTaskEl(t, 0)));
         }
 
-        function buildTaskEl(task, isSubtask) {
+        function buildTaskEl(task, depth) {
             const children = taskData.filter(t => t.parent_id == task.id).sort((a,b) => a.sort_order - b.sort_order);
             const li = document.createElement('li');
-            li.className = 'task-item' + (isSubtask ? ' subtask' : '');
+            const depthClass = depth === 1 ? ' subtask' : depth === 2 ? ' subsubtask' : '';
+            li.className = 'task-item' + depthClass;
             li.dataset.id       = task.id;
             li.dataset.parentId = task.parent_id || '';
             li.draggable = true;
+
+            const canHaveChildren = depth < 2;
+            const addBtnLabel    = depth === 0 ? '+ Sub-task' : '+ Sub-sub';
+            const addPlaceholder = depth === 0 ? 'Sub-task… (Enter to add)' : 'Sub-sub-task… (Enter to add)';
+            const addIndent      = depth === 0 ? '36px' : '24px';
 
             li.innerHTML = `
                 <div class="task-row">
@@ -3144,13 +3160,13 @@
                         onblur="commitEditTask(this, ${task.id})"
                         onkeydown="editTaskKeydown(event, this, ${task.id})">
                     <div class="task-actions">
-                        ${!isSubtask ? `<button class="task-action-btn" onclick="showAddSubtask(${task.id})">+ Sub-task</button>` : ''}
+                        ${canHaveChildren ? `<button class="task-action-btn" onclick="showAddSubtask(${task.id})">${addBtnLabel}</button>` : ''}
                         <button class="task-action-btn del" onclick="deleteTask(${task.id})">✕</button>
                     </div>
                 </div>
-                ${!isSubtask ? `<ul class="subtask-list" id="subtasks-${task.id}"></ul>
-                <div class="add-task-row" id="addSub-${task.id}" style="display:none;margin:0 12px 10px 36px;">
-                    <input type="text" placeholder="Sub-task… (Enter to add)"
+                ${canHaveChildren ? `<ul class="subtask-list" id="subtasks-${task.id}"></ul>
+                <div class="add-task-row" id="addSub-${task.id}" style="display:none;margin:0 12px 10px ${addIndent};">
+                    <input type="text" placeholder="${addPlaceholder}"
                         onkeydown="handleAddSubtask(event, ${task.id})">
                     <button class="btn" onclick="this.previousElementSibling.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))">Add</button>
                 </div>` : ''}
@@ -3164,9 +3180,9 @@
             li.addEventListener('dragend',   onDragEnd);
 
             // Render children into their slot
-            if (!isSubtask && children.length) {
+            if (canHaveChildren && children.length) {
                 const subList = li.querySelector(`#subtasks-${task.id}`);
-                children.forEach(c => subList.appendChild(buildTaskEl(c, true)));
+                children.forEach(c => subList.appendChild(buildTaskEl(c, depth + 1)));
             }
 
             return li;
