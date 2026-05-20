@@ -2487,7 +2487,7 @@
                         </div>
                         
                         <div id="calculatedCost" style="background: #ecfdf5; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; display: none;">
-                            <strong>Calculated Unit Cost: <span id="calcCostValue">$0.0000</span></strong>
+                            <strong><span id="calcCostValue"></span></strong>
                         </div>
                         
                         <div class="form-group">
@@ -2523,12 +2523,12 @@
                 const grossTotal = parseFloat(grossTotalInput.value) || 0;
                 
                 if (qty > 0 && grossTotal > 0) {
-                    const calculated = grossTotal / qty;
-                    calcValue.textContent = '$' + calculated.toFixed(4);
+                    const perUnit = grossTotal / qty;
+                    calcValue.textContent = 'Calculated unit cost: $' + perUnit.toFixed(4) + ' per unit';
                     calcDisplay.style.display = 'block';
                 } else if (qty > 0 && unitCost > 0) {
-                    const calculated = qty * unitCost;
-                    calcValue.textContent = '$' + calculated.toFixed(4) + ' per unit (Total: $' + calculated.toFixed(2) + ')';
+                    const total = qty * unitCost;
+                    calcValue.textContent = 'Calculated gross total: $' + total.toFixed(2);
                     calcDisplay.style.display = 'block';
                 } else {
                     calcDisplay.style.display = 'none';
