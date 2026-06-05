@@ -38,29 +38,29 @@ if (!empty($order['ship_street'])) {
 <title>Invoice <?= htmlspecialchars($order['order_number']) ?></title>
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  body { font-family: 'Figtree', Arial, sans-serif; color: #0f1c3f; background: #e8f0fe; margin: 0; padding: 2rem; }
+  body { font-family: 'Figtree', Arial, sans-serif; color: #2c1f0e; background: #ede8df; margin: 0; padding: 2rem; }
   .invoice-wrap { max-width: 680px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden; }
-  .inv-header { background: linear-gradient(135deg, #1a56db 0%, #0680c6 100%); color: white; padding: 2rem 2.5rem; display: flex; justify-content: space-between; align-items: flex-start; }
+  .inv-header { background: linear-gradient(135deg, #3d5a2a 0%, #4f7a38 100%); color: white; padding: 2rem 2.5rem; display: flex; justify-content: space-between; align-items: flex-start; }
   .inv-header h1 { margin: 0; font-size: 1.8rem; letter-spacing: 3px; font-family: 'IBM Plex Mono', monospace; }
   .inv-header .callsign { font-size: 0.85rem; opacity: 0.75; margin-top: 0.25rem; letter-spacing: 0.3px; }
   .inv-meta { text-align: right; font-size: 0.9rem; }
   .inv-meta .inv-num { font-size: 1.1rem; font-weight: 700; font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px; }
   .inv-body { padding: 2rem 2.5rem; }
   .addr-row { display: flex; gap: 3rem; margin-bottom: 2rem; }
-  .addr-block h3 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin: 0 0 0.4rem; font-weight: 600; }
+  .addr-block h3 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: #7a6a55; margin: 0 0 0.4rem; font-weight: 600; }
   .addr-block p { margin: 0; line-height: 1.6; font-size: 0.9rem; white-space: pre-line; }
   table.items { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
-  table.items th { background: #eef3fd; padding: 0.6rem 1rem; text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.8px; color: #6b7280; font-weight: 600; border-bottom: 2px solid #1a56db; }
-  table.items td { padding: 0.75rem 1rem; border-bottom: 1px solid #eef3fd; font-size: 0.9rem; }
+  table.items th { background: #ede8df; padding: 0.6rem 1rem; text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.8px; color: #7a6a55; font-weight: 600; border-bottom: 2px solid #4a7c38; }
+  table.items td { padding: 0.75rem 1rem; border-bottom: 1px solid #ede8df; font-size: 0.9rem; }
   .totals { margin-left: auto; width: 260px; }
   .totals table { width: 100%; border-collapse: collapse; }
   .totals td { padding: 0.4rem 0.5rem; font-size: 0.9rem; }
   .totals td:last-child { text-align: right; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
-  .totals .total-row td { font-size: 1rem; font-weight: 700; border-top: 2px solid #1a56db; padding-top: 0.6rem; color: #1a56db; font-family: 'IBM Plex Mono', monospace; }
-  .payment-box { background: rgba(26,86,219,0.06); border-left: 4px solid #1a56db; padding: 1rem 1.5rem; border-radius: 0 4px 4px 0; margin: 1.5rem 0; }
-  .payment-box h3 { margin: 0 0 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: #1240a8; font-weight: 700; }
-  .payment-box ul { margin: 0; padding-left: 1.25rem; font-size: 0.9rem; color: #1a56db; line-height: 1.8; }
-  .inv-footer { border-top: 1px solid #c7d9fb; padding: 1.25rem 2.5rem; font-size: 0.8rem; color: #6b7280; text-align: center; }
+  .totals .total-row td { font-size: 1rem; font-weight: 700; border-top: 2px solid #4a7c38; padding-top: 0.6rem; color: #4a7c38; font-family: 'IBM Plex Mono', monospace; }
+  .payment-box { background: rgba(74,124,56,0.06); border-left: 4px solid #4a7c38; padding: 1rem 1.5rem; border-radius: 0 4px 4px 0; margin: 1.5rem 0; }
+  .payment-box h3 { margin: 0 0 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: #3a6029; font-weight: 700; }
+  .payment-box ul { margin: 0; padding-left: 1.25rem; font-size: 0.9rem; color: #4a7c38; line-height: 1.8; }
+  .inv-footer { border-top: 1px solid #c9b99a; padding: 1.25rem 2.5rem; font-size: 0.8rem; color: #7a6a55; text-align: center; }
   @media print {
     body { background: white; padding: 0; }
     .invoice-wrap { box-shadow: none; }
@@ -71,8 +71,8 @@ if (!empty($order['ship_street'])) {
 <body>
 
 <div class="no-print" style="max-width:680px;margin:0 auto 1rem;display:flex;gap:0.75rem;">
-  <button onclick="window.print()" style="padding:6px 16px;background:linear-gradient(135deg,#1a56db,#0680c6);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Figtree',sans-serif;font-weight:600;">Print / Save PDF</button>
-  <a href="order_detail.php?id=<?= $order['id'] ?>" style="padding:6px 16px;background:#e8f0fe;color:#1a56db;border:1px solid #c7d9fb;border-radius:4px;text-decoration:none;font-size:12px;font-family:'Figtree',sans-serif;font-weight:500;">← Back to Order</a>
+  <button onclick="window.print()" style="padding:6px 16px;background:linear-gradient(135deg,#3d5a2a,#4f7a38);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Figtree',sans-serif;font-weight:600;">Print / Save PDF</button>
+  <a href="order_detail.php?id=<?= $order['id'] ?>" style="padding:6px 16px;background:#ede8df;color:#4a7c38;border:1px solid #c9b99a;border-radius:4px;text-decoration:none;font-size:12px;font-family:'Figtree',sans-serif;font-weight:500;">← Back to Order</a>
 </div>
 
 <div class="invoice-wrap">

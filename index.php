@@ -7,36 +7,36 @@
     <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-          --bg-body:            #e8f0fe;
-          --bg-card:            #f4f8ff;
-          --bg-card-header:     #eef3fd;
-          --bg-card-alt-row:    #f8fafe;
-          --bg-dark:            #e8f0fe;
-          --bg-medium:          #f4f8ff;
-          --bg-light:           #c7d9fb;
-          --header-gradient:    linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
+          --bg-body:            #ede8df;
+          --bg-card:            #f7f4ef;
+          --bg-card-header:     #ede8df;
+          --bg-card-alt-row:    #f2efe9;
+          --bg-dark:            #ede8df;
+          --bg-medium:          #f7f4ef;
+          --bg-light:           #c9b99a;
+          --header-gradient:    linear-gradient(135deg, #3d5a2a 0%, #4f7a38 100%);
           --header-height:      56px;
-          --nav-bg:             #162038;
-          --nav-border-bottom:  #1a56db;
-          --nav-tab-active-bg:  #1a56db;
+          --nav-bg:             #251d12;
+          --nav-border-bottom:  #4a7c38;
+          --nav-tab-active-bg:  #4a7c38;
           --nav-tab-active-color: #ffffff;
-          --nav-tab-color:      #5d729e;
-          --accent-primary:     #1a56db;
-          --accent-primary-dim: #1240a8;
-          --accent-secondary:   #0680c6;
-          --border-color:       #c7d9fb;
-          --border-card:        #c7d9fb;
-          --border-table-head:  #1a56db;
-          --text-primary:       #0f1c3f;
-          --text-secondary:     #6b7280;
-          --text-dim:           #9ca3af;
-          --success:            #10b981;
-          --warning:            #f59e0b;
-          --danger:             #ef4444;
-          --info:               #3b82f6;
-          --shadow:             rgba(10, 30, 100, 0.08);
-          --shadow-card:        0 2px 8px rgba(10, 30, 100, 0.06);
-          --shadow-header:      0 2px 16px rgba(15, 28, 63, 0.22);
+          --nav-tab-color:      #7a6a55;
+          --accent-primary:     #4a7c38;
+          --accent-primary-dim: #3a6029;
+          --accent-secondary:   #7a5c3a;
+          --border-color:       #c9b99a;
+          --border-card:        #c9b99a;
+          --border-table-head:  #4a7c38;
+          --text-primary:       #2c1f0e;
+          --text-secondary:     #7a6a55;
+          --text-dim:           #a89a85;
+          --success:            #2d7a3a;
+          --warning:            #c47d1a;
+          --danger:             #b84444;
+          --info:               #4a7c38;
+          --shadow:             rgba(44, 31, 14, 0.08);
+          --shadow-card:        0 2px 8px rgba(44, 31, 14, 0.06);
+          --shadow-header:      0 2px 16px rgba(44, 31, 14, 0.22);
           --shadow-modal:       0 20px 60px rgba(0, 0, 0, 0.30);
           --font-body:          'Figtree', sans-serif;
           --font-mono:          'IBM Plex Mono', monospace;
@@ -231,7 +231,7 @@
         .btn {
             padding: 5px 12px;
             border: 1px solid var(--border-card);
-            background: #e8f0fe;
+            background: #ede8df;
             color: var(--accent-primary);
             cursor: pointer;
             font-family: var(--font-body);
@@ -314,7 +314,7 @@
         .form-textarea:focus {
             outline: none;
             border-color: var(--accent-primary);
-            box-shadow: 0 0 0 3px rgba(26,86,219,0.12);
+            box-shadow: 0 0 0 3px rgba(74,124,56,0.12);
         }
 
         .form-textarea {
@@ -351,7 +351,7 @@
 
         .data-table td {
             padding: 10px 16px;
-            border-bottom: 1px solid #eef3fd;
+            border-bottom: 1px solid #ede8df;
         }
 
         .data-table tbody tr:nth-child(even) { background: #fff; }
@@ -416,7 +416,7 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            background: linear-gradient(160deg, #0a1628 0%, #0f1c3f 60%, #162038 100%);
+            background: linear-gradient(160deg, #1a1108 0%, #2c1f0e 60%, #251d12 100%);
         }
 
         .login-box {
@@ -658,12 +658,12 @@
 
         .task-item.dragging {
             opacity: 0.45;
-            box-shadow: 0 4px 16px rgba(26,86,219,0.18);
+            box-shadow: 0 4px 16px rgba(74,124,56,0.18);
         }
 
         .task-item.drag-over {
             border-color: var(--accent-primary);
-            box-shadow: 0 0 0 2px rgba(26,86,219,0.18);
+            box-shadow: 0 0 0 2px rgba(74,124,56,0.18);
         }
 
         .task-row {

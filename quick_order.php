@@ -154,28 +154,28 @@ $projects = $db->query("SELECT id, project_name, retail_price FROM projects WHER
     <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-          --bg-body:            #e8f0fe;
-          --bg-card:            #f4f8ff;
-          --bg-card-header:     #eef3fd;
-          --bg-dark:            #e8f0fe;
-          --bg-medium:          #f4f8ff;
-          --bg-light:           #c7d9fb;
-          --header-gradient:    linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
+          --bg-body:            #ede8df;
+          --bg-card:            #f7f4ef;
+          --bg-card-header:     #ede8df;
+          --bg-dark:            #ede8df;
+          --bg-medium:          #f7f4ef;
+          --bg-light:           #c9b99a;
+          --header-gradient:    linear-gradient(135deg, #3d5a2a 0%, #4f7a38 100%);
           --header-height:      56px;
-          --nav-bg:             #162038;
-          --nav-border-bottom:  #1a56db;
-          --accent-primary:     #1a56db;
-          --accent-primary-dim: #1240a8;
-          --border-card:        #c7d9fb;
-          --border-color:       #c7d9fb;
-          --text-primary:       #0f1c3f;
-          --text-secondary:     #6b7280;
-          --text-dim:           #9ca3af;
-          --success:            #10b981;
-          --warning:            #f59e0b;
-          --danger:             #ef4444;
-          --shadow-card:        0 2px 8px rgba(10,30,100,0.06);
-          --shadow-header:      0 2px 16px rgba(15,28,63,0.22);
+          --nav-bg:             #251d12;
+          --nav-border-bottom:  #4a7c38;
+          --accent-primary:     #4a7c38;
+          --accent-primary-dim: #3a6029;
+          --border-card:        #c9b99a;
+          --border-color:       #c9b99a;
+          --text-primary:       #2c1f0e;
+          --text-secondary:     #7a6a55;
+          --text-dim:           #a89a85;
+          --success:            #2d7a3a;
+          --warning:            #c47d1a;
+          --danger:             #b84444;
+          --shadow-card:        0 2px 8px rgba(44,31,14,0.06);
+          --shadow-header:      0 2px 16px rgba(44,31,14,0.22);
           --font-body:          'Figtree', sans-serif;
           --font-mono:          'IBM Plex Mono', monospace;
           --radius-sm:          3px;
@@ -284,7 +284,7 @@ $projects = $db->query("SELECT id, project_name, retail_price FROM projects WHER
         }
         .btn:hover { background: var(--accent-primary-dim); border-color: var(--accent-primary-dim); }
         .btn-secondary {
-            background: #e8f0fe;
+            background: #ede8df;
             border-color: var(--border-card);
             color: var(--accent-primary);
         }
@@ -314,12 +314,12 @@ $projects = $db->query("SELECT id, project_name, retail_price FROM projects WHER
         .form-input:focus, .form-textarea:focus, .form-select:focus {
             outline: none;
             border-color: var(--accent-primary);
-            box-shadow: 0 0 0 3px rgba(26,86,219,0.12);
+            box-shadow: 0 0 0 3px rgba(74,124,56,0.12);
         }
         .form-textarea { min-height: 200px; resize: vertical; }
 
         .instructions {
-            background: rgba(26,86,219,0.06);
+            background: rgba(74,124,56,0.06);
             border-left: 4px solid var(--accent-primary);
             padding: 16px 20px;
             margin-bottom: 20px;

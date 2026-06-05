@@ -38,25 +38,25 @@ if (!$ship_zip_fallback && !empty($order['shipping_address'])) {
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg-body:            #e8f0fe;
-  --bg-card:            #f4f8ff;
-  --bg-card-header:     #eef3fd;
-  --bg-dark:            #e8f0fe;
-  --bg-medium:          #f4f8ff;
-  --bg-light:           #c7d9fb;
-  --header-gradient:    linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
+  --bg-body:            #ede8df;
+  --bg-card:            #f7f4ef;
+  --bg-card-header:     #ede8df;
+  --bg-dark:            #ede8df;
+  --bg-medium:          #f7f4ef;
+  --bg-light:           #c9b99a;
+  --header-gradient:    linear-gradient(135deg, #3d5a2a 0%, #4f7a38 100%);
   --header-height:      56px;
-  --accent:             #1a56db;
-  --accent-dim:         #1240a8;
-  --text:               #0f1c3f;
-  --text-sec:           #6b7280;
-  --border:             #c7d9fb;
-  --success:            #10b981;
-  --warning:            #f59e0b;
-  --danger:             #ef4444;
-  --info:               #3b82f6;
-  --shadow-card:        0 2px 8px rgba(10,30,100,0.06);
-  --shadow-header:      0 2px 16px rgba(15,28,63,0.22);
+  --accent:             #4a7c38;
+  --accent-dim:         #3a6029;
+  --text:               #2c1f0e;
+  --text-sec:           #7a6a55;
+  --border:             #c9b99a;
+  --success:            #2d7a3a;
+  --warning:            #c47d1a;
+  --danger:             #b84444;
+  --info:               #4a7c38;
+  --shadow-card:        0 2px 8px rgba(44,31,14,0.06);
+  --shadow-header:      0 2px 16px rgba(44,31,14,0.22);
   --font-body:          'Figtree', sans-serif;
   --font-mono:          'IBM Plex Mono', monospace;
   --radius-md:          4px;
@@ -77,14 +77,14 @@ body { font-family: var(--font-body); background: var(--bg-body); color: var(--t
 .card-body { padding: 20px; }
 .form-label { display: block; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-sec); margin-bottom: 4px; }
 .form-input, .form-select, .form-textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 13px; background: #fff; color: var(--text); transition: border-color 0.15s, box-shadow 0.15s; }
-.form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(26,86,219,0.12); }
+.form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(74,124,56,0.12); }
 .form-textarea { min-height: 70px; resize: vertical; }
 .form-group { margin-bottom: 1rem; }
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
 .g4 { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0.75rem; }
 .flex { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
-.btn { padding: 5px 12px; border: 1px solid var(--border); border-radius: 3px; background: #e8f0fe; color: var(--accent); cursor: pointer; font-family: var(--font-body); font-size: 11px; font-weight: 500; text-decoration: none; display: inline-block; white-space: nowrap; transition: all 0.15s; }
+.btn { padding: 5px 12px; border: 1px solid var(--border); border-radius: 3px; background: #ede8df; color: var(--accent); cursor: pointer; font-family: var(--font-body); font-size: 11px; font-weight: 500; text-decoration: none; display: inline-block; white-space: nowrap; transition: all 0.15s; }
 .btn:hover { background: var(--bg-light); border-color: var(--accent); }
 .btn-primary { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; border-radius: var(--radius-md); }
 .btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: white; }
