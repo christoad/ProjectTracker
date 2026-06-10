@@ -110,15 +110,16 @@ if ($action === 'get_project') {
             $unit_cost = $part['weighted_avg_cost'] ?? $part['preferred_cost'] ?? $part['lowest_cost'] ?? 0;
             $part['unit_cost'] = $unit_cost;
             $part['line_total'] = $unit_cost * $part['quantity_required'];
-            $total_bom_cost += $part['line_total'];
-            
-            // Calculate actual inventory value for this part (what's actually in stock)
-            $actual_inventory_value += $part['current_stock'] * $unit_cost;
-            
-            // Calculate how many kits we can build based on this part
-            if ($part['quantity_required'] > 0) {
-                $buildable = floor($part['current_stock'] / $part['quantity_required']);
-                $min_buildable = min($min_buildable, $buildable);
+
+            // Only fixed parts (no variation_attribute) count toward shared BOM cost and buildable count.
+            // Variable parts belong to specific variations and are calculated per-combo separately.
+            if (empty($part['variation_attribute'])) {
+                $total_bom_cost += $part['line_total'];
+                $actual_inventory_value += $part['current_stock'] * $unit_cost;
+                if ($part['quantity_required'] > 0) {
+                    $buildable = floor($part['current_stock'] / $part['quantity_required']);
+                    $min_buildable = min($min_buildable, $buildable);
+                }
             }
         }
         
@@ -364,13 +365,28 @@ if ($action === 'delete_source') {
 
 // Project Parts (BOM)
 if ($action === 'add_project_part') {
-    $project_id = $_POST['project_id'] ?? 0;
-    $part_id = $_POST['part_id'] ?? 0;
-    $quantity = $_POST['quantity_required'] ?? 1;
-    $notes = $_POST['notes'] ?? '';
-    
-    $stmt = $db->prepare("INSERT INTO project_parts (project_id, part_id, quantity_required, notes) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE quantity_required = ?, notes = ?");
-    $stmt->execute([$project_id, $part_id, $quantity, $notes, $quantity, $notes]);
+    $project_id          = $_POST['project_id'] ?? 0;
+    $part_id             = $_POST['part_id'] ?? 0;
+    $quantity            = $_POST['quantity_required'] ?? 1;
+    $notes               = $_POST['notes'] ?? '';
+    $variation_attribute = $_POST['variation_attribute'] ?? '';
+    $variation_value     = $_POST['variation_value'] ?? '';
+
+    $stmt = $db->prepare("
+        INSERT INTO project_parts (project_id, part_id, quantity_required, notes, variation_attribute, variation_value)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE quantity_required = ?, notes = ?
+    ");
+    $stmt->execute([$project_id, $part_id, $quantity, $notes, $variation_attribute, $variation_value, $quantity, $notes]);
+    jsonResponse(['success' => true]);
+}
+
+// Update an existing BOM row's quantity by its primary key (works for both fixed and variable parts)
+if ($action === 'update_project_part') {
+    $id       = $_POST['id'] ?? 0;
+    $quantity = (int)($_POST['quantity_required'] ?? 1);
+    $stmt = $db->prepare("UPDATE project_parts SET quantity_required = ? WHERE id = ?");
+    $stmt->execute([$quantity, $id]);
     jsonResponse(['success' => true]);
 }
 
@@ -378,6 +394,122 @@ if ($action === 'delete_project_part') {
     $id = $_POST['id'] ?? 0;
     $stmt = $db->prepare("DELETE FROM project_parts WHERE id = ?");
     $stmt->execute([$id]);
+    jsonResponse(['success' => true]);
+}
+
+// Return all variation combinations for a project with buildable qty and WC variation ID mappings
+if ($action === 'get_project_variations') {
+    $project_id = (int)($_GET['project_id'] ?? 0);
+
+    $stmt = $db->prepare("
+        SELECT DISTINCT variation_attribute, variation_value
+        FROM project_parts
+        WHERE project_id = ? AND variation_attribute != ''
+        ORDER BY variation_attribute, variation_value
+    ");
+    $stmt->execute([$project_id]);
+    $rows = $stmt->fetchAll();
+
+    $attributes = [];
+    foreach ($rows as $row) {
+        $attributes[$row['variation_attribute']][] = $row['variation_value'];
+    }
+
+    if (empty($attributes)) {
+        jsonResponse(['has_variations' => false, 'attributes' => [], 'combos' => []]);
+        exit;
+    }
+
+    // Generate Cartesian product of all attribute values
+    $combos = [[]];
+    foreach ($attributes as $attr => $values) {
+        $new_combos = [];
+        foreach ($combos as $combo) {
+            foreach ($values as $val) {
+                $c = $combo;
+                $c[$attr] = $val;
+                $new_combos[] = $c;
+            }
+        }
+        $combos = $new_combos;
+    }
+
+    $build_combo_key = function(array $combo): string {
+        ksort($combo);
+        $parts = [];
+        foreach ($combo as $a => $v) $parts[] = $a . ':' . $v;
+        return implode('|', $parts);
+    };
+
+    // Load existing WC variation ID mappings
+    $stmt = $db->prepare("SELECT combo_key, wc_variation_id FROM project_variation_mappings WHERE project_id = ?");
+    $stmt->execute([$project_id]);
+    $mappings = [];
+    foreach ($stmt->fetchAll() as $m) {
+        $mappings[$m['combo_key']] = $m['wc_variation_id'];
+    }
+
+    // Pre-load fixed parts once
+    $stmt = $db->prepare("
+        SELECT p.current_stock, pp.quantity_required
+        FROM project_parts pp JOIN parts p ON p.id = pp.part_id
+        WHERE pp.project_id = ? AND pp.variation_attribute = ''
+    ");
+    $stmt->execute([$project_id]);
+    $fixed_parts = $stmt->fetchAll();
+
+    $combo_results = [];
+    foreach ($combos as $combo) {
+        ksort($combo);
+        $combo_key = $build_combo_key($combo);
+
+        $min = PHP_INT_MAX;
+        foreach ($fixed_parts as $f) {
+            if ($f['quantity_required'] <= 0) continue;
+            $min = min($min, (int)floor($f['current_stock'] / $f['quantity_required']));
+        }
+
+        foreach ($combo as $attr => $val) {
+            $stmt = $db->prepare("
+                SELECT p.current_stock, pp.quantity_required
+                FROM project_parts pp JOIN parts p ON p.id = pp.part_id
+                WHERE pp.project_id = ? AND pp.variation_attribute = ? AND pp.variation_value = ?
+            ");
+            $stmt->execute([$project_id, $attr, $val]);
+            foreach ($stmt->fetchAll() as $v) {
+                if ($v['quantity_required'] <= 0) continue;
+                $min = min($min, (int)floor($v['current_stock'] / $v['quantity_required']));
+            }
+        }
+
+        $combo_results[] = [
+            'combo'           => $combo,
+            'combo_key'       => $combo_key,
+            'buildable'       => $min === PHP_INT_MAX ? 0 : $min,
+            'wc_variation_id' => $mappings[$combo_key] ?? null,
+        ];
+    }
+
+    jsonResponse(['has_variations' => true, 'attributes' => $attributes, 'combos' => $combo_results]);
+}
+
+// Save or update a WooCommerce variation ID for a specific attribute combination
+if ($action === 'save_variation_mapping') {
+    $project_id      = (int)($_POST['project_id'] ?? 0);
+    $combo_key       = trim($_POST['combo_key'] ?? '');
+    $wc_variation_id = ($_POST['wc_variation_id'] ?? '') !== '' ? (int)$_POST['wc_variation_id'] : null;
+
+    if (!$project_id || $combo_key === '') {
+        jsonResponse(['error' => 'project_id and combo_key are required'], 400);
+        exit;
+    }
+
+    $stmt = $db->prepare("
+        INSERT INTO project_variation_mappings (project_id, combo_key, wc_variation_id)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE wc_variation_id = ?, updated_at = NOW()
+    ");
+    $stmt->execute([$project_id, $combo_key, $wc_variation_id, $wc_variation_id]);
     jsonResponse(['success' => true]);
 }
 
@@ -403,6 +535,38 @@ if ($action === 'save_project_expense') {
 if ($action === 'delete_project_expense') {
     $id = $_POST['id'] ?? 0;
     $stmt = $db->prepare("DELETE FROM project_expenses WHERE id = ?");
+    $stmt->execute([$id]);
+    jsonResponse(['success' => true]);
+}
+
+// Business Expenses (store-wide overhead — not tied to a specific project)
+if ($action === 'get_business_expenses') {
+    $stmt = $db->query("SELECT * FROM business_expenses ORDER BY expense_date DESC, created_at DESC");
+    jsonResponse($stmt->fetchAll());
+}
+
+if ($action === 'save_business_expense') {
+    $id           = $_POST['id'] ?? null;
+    $description  = trim($_POST['description'] ?? '');
+    $cost         = $_POST['cost'] ?? 0;
+    $category     = trim($_POST['category'] ?? 'Other');
+    $expense_date = $_POST['expense_date'] ?? date('Y-m-d');
+    $notes        = trim($_POST['notes'] ?? '');
+
+    if ($id) {
+        $stmt = $db->prepare("UPDATE business_expenses SET description=?, cost=?, category=?, expense_date=?, notes=? WHERE id=?");
+        $stmt->execute([$description, $cost, $category, $expense_date, $notes, $id]);
+        jsonResponse(['success' => true, 'id' => $id]);
+    } else {
+        $stmt = $db->prepare("INSERT INTO business_expenses (description, cost, category, expense_date, notes) VALUES (?,?,?,?,?)");
+        $stmt->execute([$description, $cost, $category, $expense_date, $notes]);
+        jsonResponse(['success' => true, 'id' => $db->lastInsertId()]);
+    }
+}
+
+if ($action === 'delete_business_expense') {
+    $id = $_POST['id'] ?? 0;
+    $stmt = $db->prepare("DELETE FROM business_expenses WHERE id = ?");
     $stmt->execute([$id]);
     jsonResponse(['success' => true]);
 }
@@ -703,13 +867,12 @@ if ($action === 'save_order') {
     }
 }
 
-// Helper function to deduct inventory
+// Helper function to deduct inventory (manual orders — fixed parts only; variable parts require WooCommerce webhook)
 function deductInventoryForOrder($db, $project_id, $order_quantity) {
-    // Get BOM for this project
-    $stmt = $db->prepare("SELECT part_id, quantity_required FROM project_parts WHERE project_id = ?");
+    $stmt = $db->prepare("SELECT part_id, quantity_required FROM project_parts WHERE project_id = ? AND variation_attribute = ''");
     $stmt->execute([$project_id]);
     $bom_parts = $stmt->fetchAll();
-    
+
     foreach ($bom_parts as $bom_part) {
         $deduct_qty = $bom_part['quantity_required'] * $order_quantity;
         $stmt = $db->prepare("UPDATE parts SET current_stock = GREATEST(0, current_stock - ?) WHERE id = ?");
@@ -717,13 +880,12 @@ function deductInventoryForOrder($db, $project_id, $order_quantity) {
     }
 }
 
-// Helper function to restore inventory
+// Helper function to restore inventory (manual orders — fixed parts only)
 function restoreInventoryForOrder($db, $project_id, $order_quantity) {
-    // Get BOM for this project
-    $stmt = $db->prepare("SELECT part_id, quantity_required FROM project_parts WHERE project_id = ?");
+    $stmt = $db->prepare("SELECT part_id, quantity_required FROM project_parts WHERE project_id = ? AND variation_attribute = ''");
     $stmt->execute([$project_id]);
     $bom_parts = $stmt->fetchAll();
-    
+
     foreach ($bom_parts as $bom_part) {
         $restore_qty = $bom_part['quantity_required'] * $order_quantity;
         $stmt = $db->prepare("UPDATE parts SET current_stock = current_stock + ? WHERE id = ?");

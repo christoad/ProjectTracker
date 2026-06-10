@@ -111,7 +111,7 @@ if (!$should_deduct && !$should_restore) {
 }
 
 // Load any existing tracker record for this WC order
-$stmt = $db->prepare("SELECT id, inventory_deducted FROM orders WHERE order_number = ?");
+$stmt = $db->prepare("SELECT id, inventory_deducted, variation_combo_key FROM orders WHERE order_number = ?");
 $stmt->execute(['WC-' . $wc_order_id]);
 $existing = $stmt->fetch();
 
@@ -119,7 +119,8 @@ $affected_projects = [];
 $item_log          = [];
 
 foreach (($order['line_items'] ?? []) as $item) {
-    $wc_product_id = (int) ($item['product_id'] ?? 0);
+    $wc_product_id   = (int) ($item['product_id'] ?? 0);
+    $wc_variation_id = (int) ($item['variation_id'] ?? 0);
     if (!$wc_product_id) continue;
 
     // Find the tracker project mapped to this WooCommerce product
@@ -127,6 +128,19 @@ foreach (($order['line_items'] ?? []) as $item) {
     $stmt->execute([$wc_product_id]);
     $project = $stmt->fetch();
     if (!$project) continue;
+
+    // For variable products, look up which attribute combo this variation represents
+    $combo     = null;
+    $combo_key = '';
+    if ($wc_variation_id) {
+        $stmt = $db->prepare("SELECT combo_key FROM project_variation_mappings WHERE project_id = ? AND wc_variation_id = ?");
+        $stmt->execute([$project['id'], $wc_variation_id]);
+        $mapping = $stmt->fetch();
+        if ($mapping) {
+            $combo_key = $mapping['combo_key'];
+            $combo     = wc_parse_combo_key($combo_key);
+        }
+    }
 
     $order_qty = max(1, (int) ($item['quantity'] ?? 1));
 
@@ -136,16 +150,16 @@ foreach (($order['line_items'] ?? []) as $item) {
             continue;
         }
 
-        $deductions = wc_deduct_bom_inventory($db, $project['id'], $order_qty);
-        $item_log[] = ['project' => $project['project_name'], 'deductions' => $deductions];
+        $deductions = wc_deduct_bom_inventory($db, $project['id'], $order_qty, $combo);
+        $item_log[] = ['project' => $project['project_name'], 'combo' => $combo_key ?: null, 'deductions' => $deductions];
 
         if (!$existing) {
             $customer = trim(($order['billing']['first_name'] ?? '') . ' ' . ($order['billing']['last_name'] ?? ''));
             $db->prepare("
                 INSERT INTO orders
                     (order_number, project_id, customer_name, customer_email,
-                     quantity, price_paid, order_date, status, notes, source, inventory_deducted)
-                VALUES (?, ?, ?, ?, ?, ?, NOW(), 'paid', ?, 'woocommerce', 1)
+                     quantity, price_paid, order_date, status, notes, source, inventory_deducted, variation_combo_key)
+                VALUES (?, ?, ?, ?, ?, ?, NOW(), 'paid', ?, 'woocommerce', 1, ?)
             ")->execute([
                 'WC-' . $wc_order_id,
                 $project['id'],
@@ -154,6 +168,7 @@ foreach (($order['line_items'] ?? []) as $item) {
                 $order_qty,
                 $item['total'] ?? '0',
                 "WooCommerce order #{$wc_order_id}",
+                $combo_key ?: null,
             ]);
         } else {
             $db->prepare("UPDATE orders SET inventory_deducted = 1 WHERE id = ?")
@@ -168,8 +183,14 @@ foreach (($order['line_items'] ?? []) as $item) {
             continue;
         }
 
-        $restorations = wc_restore_bom_inventory($db, $project['id'], $order_qty);
-        $item_log[]   = ['project' => $project['project_name'], 'restorations' => $restorations];
+        // Use the combo stored on the original order record for accurate restoration
+        $restore_combo = null;
+        if (!empty($existing['variation_combo_key'])) {
+            $restore_combo = wc_parse_combo_key($existing['variation_combo_key']);
+        }
+
+        $restorations = wc_restore_bom_inventory($db, $project['id'], $order_qty, $restore_combo);
+        $item_log[]   = ['project' => $project['project_name'], 'combo' => $existing['variation_combo_key'] ?? null, 'restorations' => $restorations];
 
         $db->prepare("UPDATE orders SET status = 'cancelled', inventory_deducted = 0 WHERE id = ?")
            ->execute([$existing['id']]);

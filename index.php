@@ -1079,6 +1079,55 @@
                     </div>
                 </div>
 
+                <!-- Business Expenses Card -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                        <h3 class="card-title">Overhead &amp; Business Expenses</h3>
+                        <button class="btn btn-primary btn-small" onclick="document.getElementById('addBizExpenseForm').style.display='block';this.style.display='none';if(!document.getElementById('bizExpDate').value)document.getElementById('bizExpDate').value=new Date().toISOString().split('T')[0];">+ Add Expense</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="addBizExpenseForm" style="display:none;margin-bottom:1rem;padding:1rem;border:1px solid var(--border-card);border-radius:var(--radius-md);background:var(--bg-card-header);">
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Description</label>
+                                    <input type="text" id="bizExpDesc" class="form-input" placeholder="e.g. Thermal label printer">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Category</label>
+                                    <select id="bizExpCategory" class="form-select">
+                                        <option>Equipment</option>
+                                        <option>Supplies</option>
+                                        <option>Software</option>
+                                        <option>Packaging</option>
+                                        <option>Fees</option>
+                                        <option>Shipping Supplies</option>
+                                        <option>Other</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Date</label>
+                                    <input type="date" id="bizExpDate" class="form-input">
+                                </div>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 2fr;gap:0.75rem;margin-bottom:0.75rem;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Amount ($)</label>
+                                    <input type="number" id="bizExpCost" class="form-input" placeholder="0.00" step="0.01" min="0">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Notes (optional)</label>
+                                    <input type="text" id="bizExpNotes" class="form-input" placeholder="">
+                                </div>
+                            </div>
+                            <div class="flex flex-gap">
+                                <button class="btn btn-primary btn-small" onclick="saveBizExpense()">Save Expense</button>
+                                <button class="btn btn-small" onclick="document.getElementById('addBizExpenseForm').style.display='none';document.querySelector('[onclick*=addBizExpenseForm]').style.display='';">Cancel</button>
+                            </div>
+                        </div>
+                        <div id="bizExpenseList">Loading...</div>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-body">
                     <h3 style="margin-bottom: 1rem;">P&L Breakdown</h3>
@@ -1102,6 +1151,10 @@
                         <tr>
                             <td style="padding-left: 2rem;">- Research &amp; Misc Expenses</td>
                             <td style="text-align: right;" id="plResearch">$0</td>
+                        </tr>
+                        <tr>
+                            <td style="padding-left: 2rem;">- Overhead &amp; Business Expenses</td>
+                            <td style="text-align: right;" id="plOverhead">$0</td>
                         </tr>
                         <tr style="border-top: 2px solid var(--border-color);">
                             <td><strong>Net Profit</strong></td>
@@ -1637,11 +1690,14 @@
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
                                 <input type="text" id="bomSearchInput" class="form-input" placeholder="Search BOM..." style="width: 200px;" oninput="bomSearchQuery = this.value; renderBOMTable();">
                                 <button class="btn btn-small" onclick="exportBOM()" style="background: var(--success); color: white; border-color: var(--success);">&#128229; Export BOM</button>
-                                <button class="btn btn-primary btn-small" onclick="addPartToProject(${project.id})">+ Add Part</button>
+                                <button class="btn btn-primary btn-small" onclick="addFixedPartToProject(${project.id})">+ Fixed Part</button>
+                                <button class="btn btn-small" style="background: var(--info); color: white; border-color: var(--info);" onclick="addVariablePartToProject(${project.id})">+ Variable Part</button>
                             </div>
                         </div>
 
                         <div id="bom-table-container"></div>
+
+                        <div id="variations-panel-container"></div>
 
                         <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
 
@@ -1682,8 +1738,9 @@
                     true  // isWide = true
                 );
 
-                // Now render the BOM table into the placeholder
+                // Now render the BOM table and load the variations panel
                 renderBOMTable();
+                renderVariationsPanel(project.id);
             } catch (error) {
                 alert('Error loading project details');
             }
@@ -1712,27 +1769,33 @@
             const arrow = (col) => bomSortState.column === col ? (bomSortState.direction === 'asc' ? ' &#9650;' : ' &#9660;') : '';
             const thStyle = 'cursor: pointer; user-select: none;';
 
-            const rows = filtered.map(p => `
+            const rows = filtered.map(p => {
+                const isVariable = p.variation_attribute && p.variation_attribute !== '';
+                const variationLabel = isVariable
+                    ? `<span style="font-size:0.78em;color:var(--accent-secondary);font-weight:600;background:rgba(26,86,219,0.09);padding:2px 7px;border-radius:3px;">${p.variation_attribute}: ${p.variation_value}</span>`
+                    : `<span style="font-size:0.78em;color:var(--text-dim);">Fixed</span>`;
+                return `
                 <tr>
                     <td>${p.part_number}</td>
                     <td>${p.part_name}</td>
                     <td>${p.category || '-'}</td>
+                    <td>${variationLabel}</td>
                     <td>${p.quantity_required}</td>
                     <td>$${parseFloat(p.unit_cost || 0).toFixed(2)}</td>
                     <td>$${parseFloat(p.line_total || 0).toFixed(2)}</td>
                     <td class="${p.current_stock >= p.quantity_required ? 'stock-ok' : 'stock-low'}">${p.current_stock}</td>
                     <td>
                         <button class="btn btn-small" onclick="viewPart(${p.part_id})">View</button>
-                        <button class="btn btn-small" onclick="editProjectPart(${project.id}, ${p.id}, ${p.part_id}, ${p.quantity_required})">Edit</button>
+                        <button class="btn btn-small" onclick="editProjectPart(${project.id}, ${p.id}, ${p.quantity_required})">Edit Qty</button>
                         <button class="btn btn-small btn-danger" onclick="removeProjectPart(${p.id}, ${project.id})">Remove</button>
                     </td>
-                </tr>
-            `).join('');
+                </tr>`;
+            }).join('');
 
             const totalRow = bomSearchQuery.trim()
                 ? ''
                 : `<tr style="font-weight: bold; background: var(--bg-light);">
-                       <td colspan="5" style="text-align: right;">Total BOM Cost:</td>
+                       <td colspan="6" style="text-align: right;">Fixed Parts BOM Cost:</td>
                        <td colspan="3">$${parseFloat(project.total_bom_cost || 0).toFixed(2)}</td>
                    </tr>`;
 
@@ -1743,6 +1806,7 @@
                             <th style="${thStyle}" onclick="sortBOM('part_number')" title="Sort">Part Number${arrow('part_number')}</th>
                             <th style="${thStyle}" onclick="sortBOM('part_name')" title="Sort">Part Name${arrow('part_name')}</th>
                             <th style="${thStyle}" onclick="sortBOM('category')" title="Sort">Category${arrow('category')}</th>
+                            <th>Variation</th>
                             <th style="${thStyle}" onclick="sortBOM('quantity_required')" title="Sort">Qty Req'd${arrow('quantity_required')}</th>
                             <th style="${thStyle}" onclick="sortBOM('unit_cost')" title="Sort">Unit Cost${arrow('unit_cost')}</th>
                             <th style="${thStyle}" onclick="sortBOM('line_total')" title="Sort">Line Total${arrow('line_total')}</th>
@@ -1751,7 +1815,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        ${filtered.length > 0 ? rows : '<tr><td colspan="8" style="color: var(--text-dim); text-align: center;">No parts match your search.</td></tr>'}
+                        ${filtered.length > 0 ? rows : '<tr><td colspan="9" style="color: var(--text-dim); text-align: center;">No parts match your search.</td></tr>'}
                         ${totalRow}
                     </tbody>
                 </table>
@@ -1821,24 +1885,35 @@
             document.body.removeChild(link);
         }
 
-        function addPartToProject(projectId) {
-            // Load parts first if not already loaded
+        function addFixedPartToProject(projectId) {
             if (parts.length === 0) {
-                loadParts().then(() => openAddPartModal(projectId));
+                loadParts().then(() => openAddFixedPartModal(projectId));
             } else {
-                openAddPartModal(projectId);
+                openAddFixedPartModal(projectId);
             }
         }
 
-        function openAddPartModal(projectId) {
-            const existingPartIds = new Set(
-                (window.currentProjectData?.parts || []).map(p => p.part_id)
+        function addVariablePartToProject(projectId) {
+            if (parts.length === 0) {
+                loadParts().then(() => openAddVariablePartModal(projectId));
+            } else {
+                openAddVariablePartModal(projectId);
+            }
+        }
+
+        function openAddFixedPartModal(projectId) {
+            // Exclude parts already in the BOM as fixed (variation_attribute='') — same part can still be added as a variable part
+            const fixedPartIds = new Set(
+                (window.currentProjectData?.parts || [])
+                    .filter(p => !p.variation_attribute)
+                    .map(p => p.part_id)
             );
-            const availableParts = parts.filter(p => !existingPartIds.has(p.id));
+            const availableParts = parts.filter(p => !fixedPartIds.has(p.id));
 
             const modal = createModal(
-                'Add Part to Project',
+                'Add Fixed Part to BOM',
                 `
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9em;">Fixed parts are shared across all product variations (or the whole product if there are no variations).</p>
                     <form id="addPartForm">
                         <div class="form-group">
                             <label class="form-label">Select Part</label>
@@ -1856,7 +1931,7 @@
                             <textarea id="partNotes" class="form-textarea"></textarea>
                         </div>
                         <div class="flex flex-gap">
-                            <button type="submit" class="btn btn-primary">Add to BOM</button>
+                            <button type="submit" class="btn btn-primary">Add Fixed Part</button>
                             <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
                         </div>
                     </form>
@@ -1871,11 +1946,11 @@
                 formData.append('part_id', document.getElementById('partSelect').value);
                 formData.append('quantity_required', document.getElementById('partQty').value);
                 formData.append('notes', document.getElementById('partNotes').value);
+                // variation_attribute and variation_value default to '' (fixed part)
 
                 try {
                     await fetch('api.php', { method: 'POST', body: formData });
                     modal.remove();
-                    // Reload the project view
                     document.querySelector('.modal.active')?.remove();
                     viewProject(projectId);
                 } catch (error) {
@@ -1884,7 +1959,75 @@
             });
         }
 
-        function editProjectPart(projectId, projectPartId, partId, currentQty) {
+        function openAddVariablePartModal(projectId) {
+            // Collect existing attribute names for the datalist suggestion
+            const existingAttrs = [...new Set(
+                (window.currentProjectData?.parts || [])
+                    .filter(p => p.variation_attribute)
+                    .map(p => p.variation_attribute)
+            )];
+
+            const modal = createModal(
+                'Add Variable Part to BOM',
+                `
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9em;">
+                        Variable parts differ per product variation. Each attribute name (e.g. "Connector") can have multiple options — one part per option value (e.g. "Male", "Female").
+                    </p>
+                    <form id="addVarPartForm">
+                        <div class="form-group">
+                            <label class="form-label">Select Part</label>
+                            <select id="varPartSelect" class="form-select" required>
+                                <option value="">Choose a part...</option>
+                                ${parts.map(p => `<option value="${p.id}">${p.part_number} - ${p.part_name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+                            <div class="form-group">
+                                <label class="form-label">Attribute Name</label>
+                                <input type="text" id="varAttrName" class="form-input" placeholder="e.g. Connector" list="attrNameList" required>
+                                <datalist id="attrNameList">
+                                    ${existingAttrs.map(a => `<option value="${a}">`).join('')}
+                                </datalist>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Attribute Value</label>
+                                <input type="text" id="varAttrValue" class="form-input" placeholder="e.g. Male pigtail" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Quantity Required per Kit</label>
+                            <input type="number" id="varPartQty" class="form-input" min="1" value="1" required>
+                        </div>
+                        <div class="flex flex-gap">
+                            <button type="submit" class="btn btn-primary">Add Variable Part</button>
+                            <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
+                        </div>
+                    </form>
+                `
+            );
+
+            document.getElementById('addVarPartForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = new FormData();
+                formData.append('action', 'add_project_part');
+                formData.append('project_id', projectId);
+                formData.append('part_id', document.getElementById('varPartSelect').value);
+                formData.append('quantity_required', document.getElementById('varPartQty').value);
+                formData.append('variation_attribute', document.getElementById('varAttrName').value.trim());
+                formData.append('variation_value', document.getElementById('varAttrValue').value.trim());
+
+                try {
+                    await fetch('api.php', { method: 'POST', body: formData });
+                    modal.remove();
+                    document.querySelector('.modal.active')?.remove();
+                    viewProject(projectId);
+                } catch (error) {
+                    alert('Error adding variable part');
+                }
+            });
+        }
+
+        function editProjectPart(projectId, projectPartId, currentQty) {
             const modal = createModal(
                 'Edit Part Quantity',
                 `
@@ -1904,9 +2047,8 @@
             document.getElementById('editPartQtyForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData();
-                formData.append('action', 'add_project_part');
-                formData.append('project_id', projectId);
-                formData.append('part_id', partId);
+                formData.append('action', 'update_project_part');
+                formData.append('id', projectPartId);
                 formData.append('quantity_required', document.getElementById('editPartQty').value);
 
                 try {
@@ -1922,7 +2064,7 @@
 
         async function removeProjectPart(projectPartId, projectId) {
             if (!confirm('Remove this part from the project?')) return;
-            
+
             const formData = new FormData();
             formData.append('action', 'delete_project_part');
             formData.append('id', projectPartId);
@@ -1933,6 +2075,100 @@
                 viewProject(projectId);
             } catch (error) {
                 alert('Error removing part');
+            }
+        }
+
+        async function renderVariationsPanel(projectId) {
+            const container = document.getElementById('variations-panel-container');
+            if (!container) return;
+
+            try {
+                const resp = await fetch(`api.php?action=get_project_variations&project_id=${projectId}`);
+                const data = await resp.json();
+
+                if (!data.has_variations) {
+                    container.innerHTML = '';
+                    return;
+                }
+
+                const attrSummary = Object.entries(data.attributes)
+                    .map(([attr, vals]) => `<strong>${attr}</strong> (${vals.length} option${vals.length > 1 ? 's' : ''})`)
+                    .join(', ');
+
+                const rows = data.combos.map(c => {
+                    const label = Object.entries(c.combo).map(([a, v]) => `${a}: ${v}`).join(' + ');
+                    const stock = c.buildable;
+                    const stockColor = stock > 0 ? 'var(--success)' : 'var(--danger)';
+                    const wcId = c.wc_variation_id ?? '';
+                    return `
+                        <tr>
+                            <td>${label}</td>
+                            <td style="font-family: var(--font-mono); color: ${stockColor}; font-weight: 600;">${stock}</td>
+                            <td>
+                                <div style="display:flex;gap:0.5rem;align-items:center;">
+                                    <input type="number" class="form-input" style="width:130px;font-family:var(--font-mono);"
+                                        placeholder="WC variation ID"
+                                        id="wcvar_${c.combo_key.replace(/[^a-z0-9]/gi,'_')}"
+                                        value="${wcId}">
+                                    <button class="btn btn-small btn-primary"
+                                        onclick="saveVariationMapping(${projectId}, '${c.combo_key.replace(/'/g, "\\'")}', 'wcvar_${c.combo_key.replace(/[^a-z0-9]/gi,'_')}')">
+                                        Save
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>`;
+                }).join('');
+
+                container.innerHTML = `
+                    <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                        <h4>Variations</h4>
+                        <button class="btn btn-small" onclick="renderVariationsPanel(${projectId})">&#8635; Refresh</button>
+                    </div>
+                    <p style="color:var(--text-secondary);font-size:0.88em;margin-bottom:0.75rem;">
+                        ${attrSummary} &mdash; ${data.combos.length} combination${data.combos.length > 1 ? 's' : ''} generated.
+                        Enter the WooCommerce variation ID for each combination to enable stock sync.
+                    </p>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Combination</th>
+                                    <th>Buildable</th>
+                                    <th>WooCommerce Variation ID</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                `;
+            } catch (err) {
+                container.innerHTML = '';
+            }
+        }
+
+        async function saveVariationMapping(projectId, comboKey, inputId) {
+            const val = document.getElementById(inputId)?.value ?? '';
+            const formData = new FormData();
+            formData.append('action', 'save_variation_mapping');
+            formData.append('project_id', projectId);
+            formData.append('combo_key', comboKey);
+            formData.append('wc_variation_id', val);
+
+            try {
+                const resp = await fetch('api.php', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.success) {
+                    const btn = document.querySelector(`[onclick*="${inputId}"]`);
+                    if (btn) {
+                        const orig = btn.textContent;
+                        btn.textContent = '✓ Saved';
+                        btn.style.background = 'var(--success)';
+                        setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 1500);
+                    }
+                }
+            } catch (err) {
+                alert('Error saving variation mapping');
             }
         }
 
@@ -3023,6 +3259,7 @@
                 document.getElementById('plGross').textContent = '$' + (businessMetrics.profit?.gross || 0).toLocaleString();
                 document.getElementById('plShipping').textContent = '$' + (businessMetrics.orders?.shipping || 0).toLocaleString();
                 document.getElementById('plResearch').textContent = '$' + (businessMetrics.profit?.research_expenses || 0).toLocaleString();
+                document.getElementById('plOverhead').textContent = '$' + (businessMetrics.profit?.overhead_expenses || 0).toLocaleString();
                 document.getElementById('plNet').textContent = '$' + (businessMetrics.profit?.net || 0).toLocaleString();
                 
                 // Orders by status
@@ -3049,9 +3286,111 @@
                 projectsHtml += '</table>';
                 document.getElementById('topProjects').innerHTML = projectsHtml;
                 
+                // Load the expenses list alongside metrics
+                loadBizExpenses();
+
             } catch (error) {
                 console.error('Error loading business metrics:', error);
                 alert('Error loading business metrics. Make sure business_metrics.php is uploaded.');
+            }
+        }
+
+        async function loadBizExpenses() {
+            const container = document.getElementById('bizExpenseList');
+            if (!container) return;
+            try {
+                const resp = await fetch('api.php?action=get_business_expenses');
+                const expenses = await resp.json();
+
+                if (!expenses.length) {
+                    container.innerHTML = '<p style="color:var(--text-dim);">No overhead expenses recorded yet.</p>';
+                    return;
+                }
+
+                const total = expenses.reduce((sum, e) => sum + parseFloat(e.cost), 0);
+                const rows = expenses.map(e => `
+                    <tr>
+                        <td style="font-family:var(--font-mono);">${e.expense_date}</td>
+                        <td>${e.description}</td>
+                        <td><span class="badge badge-info">${e.category}</span></td>
+                        <td style="font-family:var(--font-mono);text-align:right;">$${parseFloat(e.cost).toFixed(2)}</td>
+                        <td style="color:var(--text-dim);font-size:0.85em;">${e.notes || ''}</td>
+                        <td><button class="btn btn-small btn-danger" onclick="deleteBizExpense(${e.id})">Delete</button></td>
+                    </tr>`).join('');
+
+                container.innerHTML = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Description</th>
+                                <th>Category</th>
+                                <th style="text-align:right;">Amount</th>
+                                <th>Notes</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows}
+                            <tr style="font-weight:bold;background:var(--bg-light);">
+                                <td colspan="3" style="text-align:right;">Total:</td>
+                                <td style="font-family:var(--font-mono);text-align:right;">$${total.toFixed(2)}</td>
+                                <td colspan="2"></td>
+                            </tr>
+                        </tbody>
+                    </table>`;
+            } catch (err) {
+                container.innerHTML = '<p style="color:var(--danger);">Error loading expenses.</p>';
+            }
+        }
+
+        async function saveBizExpense() {
+            const desc = document.getElementById('bizExpDesc').value.trim();
+            const cost = document.getElementById('bizExpCost').value;
+            const category = document.getElementById('bizExpCategory').value;
+            const date = document.getElementById('bizExpDate').value;
+            const notes = document.getElementById('bizExpNotes').value.trim();
+
+            if (!desc || !cost || !date) {
+                alert('Description, amount, and date are required.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'save_business_expense');
+            formData.append('description', desc);
+            formData.append('cost', cost);
+            formData.append('category', category);
+            formData.append('expense_date', date);
+            formData.append('notes', notes);
+
+            try {
+                await fetch('api.php', { method: 'POST', body: formData });
+                // Reset form and hide it
+                document.getElementById('bizExpDesc').value = '';
+                document.getElementById('bizExpCost').value = '';
+                document.getElementById('bizExpNotes').value = '';
+                document.getElementById('addBizExpenseForm').style.display = 'none';
+                document.querySelector('[onclick*="addBizExpenseForm"]').style.display = '';
+                // Reload both the expense list and metrics (to update P&L totals)
+                loadBizExpenses();
+                loadBusinessMetrics();
+            } catch (err) {
+                alert('Error saving expense.');
+            }
+        }
+
+        async function deleteBizExpense(id) {
+            if (!confirm('Delete this expense?')) return;
+            const formData = new FormData();
+            formData.append('action', 'delete_business_expense');
+            formData.append('id', id);
+            try {
+                await fetch('api.php', { method: 'POST', body: formData });
+                loadBizExpenses();
+                loadBusinessMetrics();
+            } catch (err) {
+                alert('Error deleting expense.');
             }
         }
 

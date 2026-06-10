@@ -126,9 +126,23 @@ try {
     $stmt = $db->query("SELECT SUM(cost) as total_research FROM project_expenses");
     $totalResearchExpenses = $stmt->fetch()['total_research'] ?? 0;
 
-    // 7. PROFIT CALCULATIONS
+    // 7. OVERHEAD / BUSINESS EXPENSES (filtered by period)
+    $overheadQuery = "SELECT SUM(cost) as total_overhead FROM business_expenses";
+    if ($year !== 'all' && $year !== 'trailing') {
+        $overheadQuery .= " WHERE YEAR(expense_date) = ?";
+        $stmt = $db->prepare($overheadQuery);
+        $stmt->execute([$year]);
+    } elseif ($year === 'trailing') {
+        $overheadQuery .= " WHERE expense_date >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)";
+        $stmt = $db->query($overheadQuery);
+    } else {
+        $stmt = $db->query($overheadQuery);
+    }
+    $totalOverheadExpenses = $stmt->fetch()['total_overhead'] ?? 0;
+
+    // 8. PROFIT CALCULATIONS
     $grossProfit = $totalRevenue - $totalCOGS;
-    $netProfit = $grossProfit - $totalShipping - $totalResearchExpenses;
+    $netProfit = $grossProfit - $totalShipping - $totalResearchExpenses - $totalOverheadExpenses;
     $profitMargin = $totalRevenue > 0 ? ($grossProfit / $totalRevenue) * 100 : 0;
     
     // 7. ORDERS BY STATUS
@@ -180,7 +194,8 @@ try {
             'gross' => round($grossProfit, 2),
             'net' => round($netProfit, 2),
             'margin' => round($profitMargin, 2),
-            'research_expenses' => round($totalResearchExpenses, 2)
+            'research_expenses' => round($totalResearchExpenses, 2),
+            'overhead_expenses' => round($totalOverheadExpenses, 2)
         ],
         'purchases' => round($totalPurchases, 2),
         'orders_by_status' => $ordersByStatus,

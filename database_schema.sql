@@ -48,16 +48,34 @@ CREATE TABLE IF NOT EXISTS part_sources (
 ) ENGINE=InnoDB;
 
 -- Bill of Materials - parts required for each project
+-- variation_attribute/variation_value: empty string = fixed/shared part;
+--   non-empty = variable part that only applies to one attribute option
+--   (e.g. variation_attribute='Connector', variation_value='Male pigtail adapter')
 CREATE TABLE IF NOT EXISTS project_parts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     project_id INT NOT NULL,
     part_id INT NOT NULL,
     quantity_required INT NOT NULL DEFAULT 1,
     notes TEXT,
+    variation_attribute VARCHAR(100) NOT NULL DEFAULT '',
+    variation_value VARCHAR(255) NOT NULL DEFAULT '',
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
     FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_project_part (project_id, part_id),
+    UNIQUE KEY unique_project_part (project_id, part_id, variation_attribute, variation_value),
     INDEX idx_project_id (project_id)
+) ENGINE=InnoDB;
+
+-- Maps each combination of attribute values to a WooCommerce variation product ID.
+-- combo_key format: "AttributeA:ValueA|AttributeB:ValueB" (attributes sorted alphabetically)
+CREATE TABLE IF NOT EXISTS project_variation_mappings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    project_id INT NOT NULL,
+    combo_key VARCHAR(500) NOT NULL,
+    wc_variation_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_project_combo (project_id, combo_key)
 ) ENGINE=InnoDB;
 
 -- Inventory purchases/check-ins
@@ -91,6 +109,7 @@ CREATE TABLE IF NOT EXISTS orders (
     status ENUM('pending', 'paid', 'shipped', 'completed', 'cancelled') DEFAULT 'pending',
     shipping_address TEXT,
     notes TEXT,
+    variation_combo_key VARCHAR(500) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
