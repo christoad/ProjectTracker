@@ -1372,7 +1372,7 @@
                 const tbody = document.querySelector('#projectsTable tbody');
                 tbody.innerHTML = projects.map(p => `
                     <tr>
-                        <td><strong>${p.project_name}</strong></td>
+                        <td><strong style="cursor:pointer;color:var(--accent-primary);" onclick="viewProject(${p.id})">${p.project_name}</strong></td>
                         <td>${p.description || '-'}</td>
                         <td><span class="badge badge-${p.status === 'active' ? 'success' : 'secondary'}">${p.status}</span></td>
                         <td>${p.parts_count || 0}</td>
@@ -1425,7 +1425,7 @@
                 return `
                     <tr>
                         <td><strong>${p.part_number}</strong></td>
-                        <td>${p.part_name}</td>
+                        <td style="cursor:pointer;color:var(--accent-primary);" onclick="viewPart(${p.id})">${p.part_name}</td>
                         <td>${p.category || '-'}</td>
                         <td class="${stockClass}">${p.current_stock}</td>
                         <td>${p.min_stock_level}</td>
