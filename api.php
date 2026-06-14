@@ -61,12 +61,48 @@ if ($action === 'get_dashboard') {
 // Projects
 if ($action === 'get_projects') {
     $projects = $db->query("
-        SELECT p.*, COUNT(DISTINCT pp.part_id) as parts_count 
+        SELECT p.*, COUNT(DISTINCT pp.part_id) as parts_count
         FROM projects p
         LEFT JOIN project_parts pp ON p.id = pp.project_id
         GROUP BY p.id
         ORDER BY p.created_at DESC
     ")->fetchAll();
+
+    // Compute buildable_kits for every project in two queries total
+    $allParts = $db->query("
+        SELECT pp.project_id, pp.quantity_required, pp.variation_attribute, p.current_stock
+        FROM project_parts pp
+        JOIN parts p ON pp.part_id = p.id
+    ")->fetchAll();
+
+    $partsByProject = [];
+    foreach ($allParts as $part) {
+        $partsByProject[$part['project_id']][] = $part;
+    }
+
+    foreach ($projects as &$project) {
+        $parts = $partsByProject[$project['id']] ?? [];
+        $minBuildable = PHP_INT_MAX;
+        $variationGroups = [];
+        foreach ($parts as $part) {
+            if (empty($part['variation_attribute'])) {
+                if ($part['quantity_required'] > 0) {
+                    $minBuildable = min($minBuildable, floor($part['current_stock'] / $part['quantity_required']));
+                }
+            } else {
+                $attr = $part['variation_attribute'];
+                if ($part['quantity_required'] > 0) {
+                    $variationGroups[$attr] = ($variationGroups[$attr] ?? 0) + floor($part['current_stock'] / $part['quantity_required']);
+                }
+            }
+        }
+        foreach ($variationGroups as $groupBuildable) {
+            $minBuildable = min($minBuildable, $groupBuildable);
+        }
+        $project['buildable_kits'] = ($minBuildable === PHP_INT_MAX) ? 0 : $minBuildable;
+    }
+    unset($project);
+
     jsonResponse($projects);
 }
 
@@ -102,27 +138,40 @@ if ($action === 'get_project') {
         // Calculate BOM costs and buildable quantity
         $total_bom_cost = 0;
         $min_buildable = PHP_INT_MAX;
-        
-        $actual_inventory_value = 0;  // Track actual value of inventory in stock
-        
+        $actual_inventory_value = 0;
+        $variation_group_buildable = []; // keyed by variation_attribute
+
         foreach ($project['parts'] as &$part) {
             // Use weighted average cost from actual inventory first, fall back to supplier pricing
             $unit_cost = $part['weighted_avg_cost'] ?? $part['preferred_cost'] ?? $part['lowest_cost'] ?? 0;
             $part['unit_cost'] = $unit_cost;
             $part['line_total'] = $unit_cost * $part['quantity_required'];
 
-            // Only fixed parts (no variation_attribute) count toward shared BOM cost and buildable count.
-            // Variable parts belong to specific variations and are calculated per-combo separately.
             if (empty($part['variation_attribute'])) {
+                // Fixed part — counts toward shared BOM cost and constrains buildable count
                 $total_bom_cost += $part['line_total'];
                 $actual_inventory_value += $part['current_stock'] * $unit_cost;
                 if ($part['quantity_required'] > 0) {
                     $buildable = floor($part['current_stock'] / $part['quantity_required']);
                     $min_buildable = min($min_buildable, $buildable);
                 }
+            } else {
+                // Variable part — pool stock across all options of the same attribute.
+                // Any option satisfies the requirement, so sum buildable counts across all values.
+                $attr = $part['variation_attribute'];
+                if ($part['quantity_required'] > 0) {
+                    $buildable = floor($part['current_stock'] / $part['quantity_required']);
+                    $variation_group_buildable[$attr] = ($variation_group_buildable[$attr] ?? 0) + $buildable;
+                }
             }
         }
-        
+        unset($part);
+
+        // Each variation attribute group must be satisfiable — apply its pooled buildable as a constraint
+        foreach ($variation_group_buildable as $attr => $group_buildable) {
+            $min_buildable = min($min_buildable, $group_buildable);
+        }
+
         if ($min_buildable === PHP_INT_MAX) {
             $min_buildable = 0;
         }

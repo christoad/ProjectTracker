@@ -922,8 +922,13 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">Projects / Kits</h2>
-                        <button class="btn btn-primary" onclick="openProjectModal()">+ New Project</button>
+                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                            <button class="btn btn-small" onclick="wcCheckStatus()" style="background:var(--info);color:white;border-color:var(--info);">Check WC Status</button>
+                            <button class="btn btn-small" onclick="wcSyncAll()" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync All to WooCommerce</button>
+                            <button class="btn btn-primary" onclick="openProjectModal()">+ New Project</button>
+                        </div>
                     </div>
+                    <div id="wcSyncResult" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border-card);background:var(--bg-card-alt-row);font-size:0.9rem;"></div>
                     <div class="table-container">
                         <table class="data-table" id="projectsTable">
                             <thead>
@@ -932,6 +937,7 @@
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('projects', 'description')" title="Click to sort">Description <span id="sort-projects-description"></span></th>
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('projects', 'status')" title="Click to sort">Status <span id="sort-projects-status"></span></th>
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('projects', 'parts_count')" title="Click to sort">Parts <span id="sort-projects-parts_count"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('projects', 'buildable_kits')" title="Click to sort">Buildable <span id="sort-projects-buildable_kits"></span></th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1370,21 +1376,123 @@
                 projects = allProjects;
                 
                 const tbody = document.querySelector('#projectsTable tbody');
-                tbody.innerHTML = projects.map(p => `
+                tbody.innerHTML = projects.map(p => {
+                    const buildable = p.buildable_kits ?? 0;
+                    const buildableClass = buildable === 0 ? 'stock-low' : 'stock-ok';
+                    return `
                     <tr>
-                        <td><strong style="cursor:pointer;color:var(--accent-primary);" onclick="viewProject(${p.id})">${p.project_name}</strong></td>
+                        <td style="cursor:pointer;color:var(--accent-primary);font-weight:600;" onclick="viewProject(${p.id})">${p.project_name}</td>
                         <td>${p.description || '-'}</td>
                         <td><span class="badge badge-${p.status === 'active' ? 'success' : 'secondary'}">${p.status}</span></td>
                         <td>${p.parts_count || 0}</td>
+                        <td class="${buildableClass}" style="font-family:var(--font-mono);">${buildable}</td>
                         <td>
                             <button class="btn btn-small" onclick="viewProject(${p.id})">View</button>
                             <button class="btn btn-small" onclick="editProject(${p.id})">Edit</button>
+                            ${p.woocommerce_product_id ? `<button class="btn btn-small" onclick="wcSyncProject(${p.id})" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync WC</button>` : ''}
                             <button class="btn btn-small btn-danger" onclick="deleteProject(${p.id})">Delete</button>
                         </td>
                     </tr>
-                `).join('');
+                `;
+                }).join('');
             } catch (error) {
                 console.error('Error loading projects:', error);
+            }
+        }
+
+        // WooCommerce sync buttons
+        const WC_WEBHOOK = 'https://ki6cr.com/projects/woocommerce_webhook.php';
+
+        function wcShowResult(html) {
+            const el = document.getElementById('wcSyncResult');
+            el.innerHTML = html;
+            el.style.display = 'block';
+        }
+
+        async function wcSyncAll() {
+            wcShowResult('<em>Syncing all projects to WooCommerce…</em>');
+            try {
+                const r = await fetch(`${WC_WEBHOOK}?action=sync_all`);
+                const data = await r.json();
+                if (data.error) { wcShowResult(`<span style="color:var(--danger)">Error: ${data.error}</span>`); return; }
+                const rows = (data.results || []).map(p => {
+                    if (p.skipped) return `<tr><td style="padding:3px 8px;color:var(--text-secondary)">${p.project_id}</td><td colspan="2" style="padding:3px 8px;color:var(--text-secondary)">skipped — ${p.reason}</td></tr>`;
+                    if (p.variable) {
+                        const varLines = (p.variations || []).map(v =>
+                            v.skipped ? `${v.combo}: skipped — ${v.reason}` :
+                            v.success ? `${v.combo}: ✓ qty ${v.calculated_qty}` :
+                            `${v.combo}: ✗ ${v.error}`
+                        ).join('<br>');
+                        return `<tr><td style="padding:3px 8px;font-weight:600">${p.project_name}</td><td style="padding:3px 8px">variable</td><td style="padding:3px 8px">${varLines}</td></tr>`;
+                    }
+                    if (p.success) return `<tr><td style="padding:3px 8px;font-weight:600">${p.project_name}</td><td style="padding:3px 8px;color:var(--success)">✓ synced</td><td style="padding:3px 8px;font-family:var(--font-mono)">qty → ${p.calculated_qty}</td></tr>`;
+                    return `<tr><td style="padding:3px 8px;font-weight:600">${p.project_name}</td><td style="padding:3px 8px;color:var(--danger)">✗ error</td><td style="padding:3px 8px">${p.error || 'Unknown error'}</td></tr>`;
+                }).join('');
+                wcShowResult(`<strong>Sync All — ${data.synced} project(s) pushed</strong>
+                    <table style="margin-top:8px;width:100%;border-collapse:collapse;font-size:0.85rem;">
+                        <thead><tr style="color:var(--text-secondary);text-align:left;border-bottom:1px solid var(--border-card)">
+                            <th style="padding:3px 8px">Project</th><th style="padding:3px 8px">Result</th><th style="padding:3px 8px">Detail</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>`);
+            } catch(e) {
+                wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
+            }
+        }
+
+        async function wcCheckStatus() {
+            wcShowResult('<em>Fetching WooCommerce stock status…</em>');
+            try {
+                const r = await fetch(`${WC_WEBHOOK}?action=status`);
+                const data = await r.json();
+                if (!Array.isArray(data) || data.length === 0) {
+                    wcShowResult('<span style="color:var(--text-secondary)">No projects are mapped to WooCommerce products yet.</span>');
+                    return;
+                }
+                const rows = data.map(p => `
+                    <tr>
+                        <td style="padding:4px 8px;font-weight:600">${p.project_name}</td>
+                        <td style="padding:4px 8px;font-family:var(--font-mono);color:${p.calculated_available_qty > 0 ? 'var(--success)' : 'var(--danger)'}">${p.calculated_available_qty}</td>
+                        <td style="padding:4px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${p.wc_product_id}</td>
+                        <td style="padding:4px 8px"><span class="badge badge-${p.project_status === 'active' ? 'success' : 'secondary'}">${p.project_status}</span></td>
+                    </tr>`).join('');
+                wcShowResult(`<strong>WooCommerce Stock Status</strong>
+                    <table style="margin-top:8px;width:100%;border-collapse:collapse;font-size:0.85rem;">
+                        <thead><tr style="color:var(--text-secondary);text-align:left;border-bottom:1px solid var(--border-card)">
+                            <th style="padding:3px 8px">Project</th><th style="padding:3px 8px">Available Qty</th><th style="padding:3px 8px">WC Product ID</th><th style="padding:3px 8px">Status</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>`);
+            } catch(e) {
+                wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
+            }
+        }
+
+        async function wcSyncProject(projectId) {
+            wcShowResult('<em>Syncing to WooCommerce…</em>');
+            try {
+                const r = await fetch(`${WC_WEBHOOK}?action=sync&project_id=${projectId}`);
+                const data = await r.json();
+                if (data.skipped) {
+                    wcShowResult(`<span style="color:var(--text-secondary)">${data.reason}</span>`);
+                    return;
+                }
+                if (data.variable) {
+                    const lines = (data.variations || []).map(v =>
+                        v.skipped ? `<li style="color:var(--text-secondary)">${v.combo}: ${v.reason}</li>` :
+                        v.success  ? `<li style="color:var(--success)">${v.combo}: ✓ qty ${v.calculated_qty}</li>` :
+                        `<li style="color:var(--danger)">${v.combo}: ✗ ${v.error}</li>`
+                    ).join('');
+                    wcShowResult(`<strong>${data.project_name}</strong> (variable product)<ul style="margin:6px 0 0 16px">${lines}</ul>`);
+                    return;
+                }
+                if (data.success) {
+                    wcShowResult(`<span style="color:var(--success)">✓ <strong>${data.project_name}</strong> synced — qty ${data.calculated_qty} pushed to WooCommerce</span>`);
+                } else {
+                    wcShowResult(`<span style="color:var(--danger)">✗ <strong>${data.project_name || 'Project'}</strong> sync failed: ${data.error || 'Unknown error'}</span>`);
+                }
+            } catch(e) {
+                wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
             }
         }
 
