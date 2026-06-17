@@ -98,7 +98,9 @@ $wc_order_id = (int) $order['id'];
 $wc_status   = $order['status'] ?? '';
 
 // Which inventory action does this order status trigger?
-$should_deduct  = in_array($wc_status, ['processing', 'on-hold']);
+// 'completed' is included because manual/label-printed orders often skip 'processing'.
+// The deduction is idempotent — if already deducted for this order it won't double-deduct.
+$should_deduct  = in_array($wc_status, ['processing', 'on-hold', 'completed']);
 $should_restore = in_array($wc_status, ['cancelled', 'refunded']);
 
 if (!$should_deduct && !$should_restore) {

@@ -333,16 +333,29 @@ function wc_deduct_bom_inventory($db, int $project_id, int $order_qty, ?array $c
 
     $log = [];
     foreach ($rows as $row) {
-        $deduct    = $row['quantity_required'] * $order_qty;
-        $new_stock = max(0, $row['current_stock'] - $deduct);
-        $db->prepare("UPDATE parts SET current_stock = ? WHERE id = ?")->execute([$new_stock, $row['part_id']]);
-        $log[] = [
-            'part_id'   => $row['part_id'],
-            'part_name' => $row['part_name'],
-            'deducted'  => $deduct,
-            'old_stock' => $row['current_stock'],
-            'new_stock' => $new_stock,
-        ];
+        $part_id   = (int) $row['part_id'];
+        $deduct    = (int) $row['quantity_required'] * $order_qty;
+        $old_stock = (int) $row['current_stock'];
+        $new_stock = max(0, $old_stock - $deduct);
+        try {
+            $upd = $db->prepare("UPDATE parts SET current_stock = ? WHERE id = ?");
+            $upd->execute([$new_stock, $part_id]);
+            $affected = $upd->rowCount();
+            $log[] = [
+                'part_id'   => $part_id,
+                'part_name' => $row['part_name'],
+                'deducted'  => $deduct,
+                'old_stock' => $old_stock,
+                'new_stock' => $new_stock,
+                'rows_affected' => $affected,
+            ];
+        } catch (\Exception $e) {
+            $log[] = [
+                'part_id'   => $part_id,
+                'part_name' => $row['part_name'],
+                'error'     => $e->getMessage(),
+            ];
+        }
     }
     return $log;
 }

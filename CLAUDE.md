@@ -179,3 +179,12 @@ Use translucent backgrounds, not solid colors:
 ## What Was Removed (USPS)
 
 The USPS API integration (address validation, rate lookup, tracking, label generation) was fully removed in May 2026. The shipping weight and dimension fields (`ship_weight_oz`, `pkg_length`, `pkg_width`, `pkg_height`) on the `projects` table were kept — they remain useful for shipping calculations. The `mail_service` and `tracking_number` fields on `orders` were also kept for manual entry.
+
+---
+
+## Pending Decisions / TODO (as of 2026-06-17)
+
+### WooCommerce Shipping Strategy
+- **Domestic shipping:** Chris is leaning toward free shipping for US orders. Decision needed before store goes live.
+- **International shipping:** If domestic is free, international should be charged. Need to configure WooCommerce shipping zones accordingly.
+- **Lightweight / low-margin items (e.g. CEC cable adaptor):** If cheapest available shipping method is $5–8, that destroys the margin on an inexpensive item. Need to confirm whether USPS First Class Package (typically $3–5 for items under 1 lb) can be offered as a rate in WooCommerce/Shippo for these SKUs. If not, the CEC adaptor may need to be bundled, priced higher, or offered local-pickup/free-with-another-item only.
