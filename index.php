@@ -915,6 +915,14 @@
                         <div id="recentOrdersList" class="card-body"></div>
                     </div>
                 </div>
+
+                <div class="card" style="margin-top:1.5rem;">
+                    <div class="card-header">
+                        <h2 class="card-title">Build Bottleneck Insights</h2>
+                        <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400;">What to order to unlock more kit builds</span>
+                    </div>
+                    <div id="bottleneckInsights"></div>
+                </div>
             </section>
 
             <!-- Projects Section -->
@@ -929,7 +937,7 @@
                         </div>
                     </div>
                     <div id="wcSyncResult" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border-card);background:var(--bg-card-alt-row);font-size:0.9rem;"></div>
-                    <div class="table-container">
+                    <div class="table-container" id="projectsTableContainer">
                         <table class="data-table" id="projectsTable">
                             <thead>
                                 <tr>
@@ -944,6 +952,14 @@
                             <tbody></tbody>
                         </table>
                     </div>
+                </div>
+
+                <div id="trashedProjectsCard" class="card" style="margin-top:1.5rem;display:none;">
+                    <div class="card-header" style="cursor:pointer;" onclick="toggleTrashedProjects()">
+                        <h2 class="card-title" style="color:var(--text-secondary);">🗑 Trash <span id="trashedCount" style="font-size:0.8rem;font-weight:400;"></span></h2>
+                        <span id="trashedToggleLabel" style="font-size:0.82rem;color:var(--text-secondary);">Show</span>
+                    </div>
+                    <div id="trashedProjectsList" style="display:none;"></div>
                 </div>
             </section>
 
@@ -1317,7 +1333,7 @@
 
             // Load data when section is shown
             if (sectionId === 'dashboard') loadDashboard();
-            if (sectionId === 'projects') loadProjects();
+            if (sectionId === 'projects') { loadProjects(); loadTrashedProjects(); }
             if (sectionId === 'parts') loadParts();
             if (sectionId === 'orders') loadOrders();
             if (sectionId === 'business') {
@@ -1360,6 +1376,64 @@
                     `).join('')
                     : '<div style="padding: 1rem; color: var(--text-dim);">No recent orders</div>';
                 document.getElementById('recentOrdersList').innerHTML = ordersHtml;
+
+                // Bottleneck insights
+                const insights = data.bottleneck_insights || [];
+                if (insights.length === 0) {
+                    document.getElementById('bottleneckInsights').innerHTML =
+                        '<div style="padding:1rem;color:var(--text-dim)">No active projects with BOM data.</div>';
+                } else {
+                    const insightHtml = insights.map(proj => {
+                        const b = proj.current_buildable;
+                        const badgeColor = b === 0 ? 'var(--danger)' : b < 5 ? 'var(--warning)' : 'var(--success)';
+                        const badgeIcon  = b === 0 ? '✗' : b < 5 ? '⚠' : '✓';
+
+                        const partsHtml = proj.bottleneck_parts.map(part => {
+                            const costStr = part.estimated_cost !== null
+                                ? ` <span style="color:var(--text-secondary)">~$${parseFloat(part.estimated_cost).toFixed(2)}</span>` : '';
+                            const stockColor = part.current_stock === 0 ? 'var(--danger)' : 'var(--warning)';
+                            return `
+                            <div style="display:flex;align-items:baseline;gap:6px;margin:3px 0 3px 18px;font-size:0.875rem;flex-wrap:wrap;">
+                                <span style="color:${stockColor};font-size:0.75rem;">▲</span>
+                                <strong>${part.part_name}</strong>
+                                <span style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.78rem;">${part.part_number}</span>
+                                <span style="color:var(--text-secondary);">${part.current_stock} in stock · ${part.quantity_required}/kit</span>
+                                <span style="color:var(--accent-primary);white-space:nowrap;">→ order ${part.units_to_order}${costStr}</span>
+                            </div>`;
+                        }).join('');
+
+                        const unlockLine = proj.kits_unlocked > 0
+                            ? `<span style="font-size:0.82rem;color:var(--text-secondary);margin-left:6px;">unlock ${proj.kits_unlocked} more kit${proj.kits_unlocked !== 1 ? 's' : ''}</span>`
+                            : '';
+
+                        const totalCostLine = proj.total_order_cost !== null
+                            ? `<span style="font-size:0.82rem;color:var(--text-secondary);margin-left:6px;">· total order ~$${parseFloat(proj.total_order_cost).toFixed(2)}</span>`
+                            : '';
+
+                        const nextHint = proj.next_constraint_name
+                            ? `<div style="margin:2px 0 0 18px;font-size:0.8rem;color:var(--text-dim);">Then limited by: ${proj.next_constraint_name}</div>`
+                            : '';
+
+                        const revenueHint = proj.retail_price > 0 && proj.kits_unlocked > 0
+                            ? `<span style="font-size:0.82rem;color:var(--success);margin-left:6px;">· +$${(proj.retail_price * proj.kits_unlocked).toFixed(0)} potential revenue</span>`
+                            : '';
+
+                        return `
+                        <div style="padding:10px 16px;border-bottom:1px solid var(--border-card);">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">
+                                <span style="font-weight:600;cursor:pointer;color:var(--text-primary);"
+                                      onclick="viewProject(${proj.project_id})"
+                                      onmouseover="this.style.color='var(--accent-primary)'"
+                                      onmouseout="this.style.color='var(--text-primary)'">${proj.project_name}</span>
+                                <span style="background:${badgeColor};color:white;border-radius:10px;padding:1px 9px;font-size:0.78rem;font-family:var(--font-mono);white-space:nowrap;">${badgeIcon} ${b} buildable</span>
+                                ${unlockLine}${totalCostLine}${revenueHint}
+                            </div>
+                            ${partsHtml}
+                            ${nextHint}
+                        </div>`;
+                    }).join('');
+                    document.getElementById('bottleneckInsights').innerHTML = insightHtml;
+                }
             } catch (error) {
                 console.error('Error loading dashboard:', error);
             }
@@ -1390,7 +1464,7 @@
                             <button class="btn btn-small" onclick="viewProject(${p.id})">View</button>
                             <button class="btn btn-small" onclick="editProject(${p.id})">Edit</button>
                             ${p.woocommerce_product_id ? `<button class="btn btn-small" onclick="wcSyncProject(${p.id})" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync WC</button>` : ''}
-                            <button class="btn btn-small btn-danger" onclick="deleteProject(${p.id})">Delete</button>
+                            <button class="btn btn-small btn-danger" onclick="deleteProject(${p.id})">Trash</button>
                         </td>
                     </tr>
                 `;
@@ -1400,8 +1474,8 @@
             }
         }
 
-        // WooCommerce sync buttons
-        const WC_WEBHOOK = 'https://ki6cr.com/projects/woocommerce_webhook.php';
+        // WooCommerce sync buttons — routed through api.php to avoid content blocker false positives
+        const WC_WEBHOOK = 'api.php';
 
         function wcShowResult(html) {
             const el = document.getElementById('wcSyncResult');
@@ -1412,20 +1486,24 @@
         async function wcSyncAll() {
             wcShowResult('<em>Syncing all projects to WooCommerce…</em>');
             try {
-                const r = await fetch(`${WC_WEBHOOK}?action=sync_all`);
+                const r = await fetch(`${WC_WEBHOOK}?action=wc_sync_all`);
                 const data = await r.json();
                 if (data.error) { wcShowResult(`<span style="color:var(--danger)">Error: ${data.error}</span>`); return; }
                 const rows = (data.results || []).map(p => {
                     if (p.skipped) return `<tr><td style="padding:3px 8px;color:var(--text-secondary)">${p.project_id}</td><td colspan="2" style="padding:3px 8px;color:var(--text-secondary)">skipped — ${p.reason}</td></tr>`;
                     if (p.variable) {
-                        const varLines = (p.variations || []).map(v =>
-                            v.skipped ? `${v.combo}: skipped — ${v.reason}` :
-                            v.success ? `${v.combo}: ✓ qty ${v.calculated_qty}` :
-                            `${v.combo}: ✗ ${v.error}`
-                        ).join('<br>');
+                        const varLines = (p.variations || []).map(v => {
+                            if (v.skipped) return `${v.combo}: skipped — ${v.reason}`;
+                            if (!v.success) return `<span style="color:var(--danger)">${v.combo}: ✗ ${v.error}</span>`;
+                            const wc = v.new_stock !== null && v.new_stock !== undefined ? ` (WC: ${v.new_stock})` : '';
+                            return `<span style="color:var(--success)">${v.combo}: ✓ ${v.calculated_qty}${wc}</span>`;
+                        }).join('<br>');
                         return `<tr><td style="padding:3px 8px;font-weight:600">${p.project_name}</td><td style="padding:3px 8px">variable</td><td style="padding:3px 8px">${varLines}</td></tr>`;
                     }
-                    if (p.success) return `<tr><td style="padding:3px 8px;font-weight:600">${p.project_name}</td><td style="padding:3px 8px;color:var(--success)">✓ synced</td><td style="padding:3px 8px;font-family:var(--font-mono)">qty → ${p.calculated_qty}</td></tr>`;
+                    if (p.success) {
+                        const wc = p.new_stock !== null && p.new_stock !== undefined ? ` (WC: ${p.new_stock})` : '';
+                        return `<tr><td style="padding:3px 8px;font-weight:600">${p.project_name}</td><td style="padding:3px 8px;color:var(--success)">✓ synced</td><td style="padding:3px 8px;font-family:var(--font-mono)">${p.calculated_qty}${wc}</td></tr>`;
+                    }
                     return `<tr><td style="padding:3px 8px;font-weight:600">${p.project_name}</td><td style="padding:3px 8px;color:var(--danger)">✗ error</td><td style="padding:3px 8px">${p.error || 'Unknown error'}</td></tr>`;
                 }).join('');
                 wcShowResult(`<strong>Sync All — ${data.synced} project(s) pushed</strong>
@@ -1443,7 +1521,7 @@
         async function wcCheckStatus() {
             wcShowResult('<em>Fetching WooCommerce stock status…</em>');
             try {
-                const r = await fetch(`${WC_WEBHOOK}?action=status`);
+                const r = await fetch(`${WC_WEBHOOK}?action=wc_status`);
                 const data = await r.json();
                 if (!Array.isArray(data) || data.length === 0) {
                     wcShowResult('<span style="color:var(--text-secondary)">No projects are mapped to WooCommerce products yet.</span>');
@@ -1471,23 +1549,27 @@
         async function wcSyncProject(projectId) {
             wcShowResult('<em>Syncing to WooCommerce…</em>');
             try {
-                const r = await fetch(`${WC_WEBHOOK}?action=sync&project_id=${projectId}`);
+                const r = await fetch(`${WC_WEBHOOK}?action=wc_sync&project_id=${projectId}`);
                 const data = await r.json();
                 if (data.skipped) {
                     wcShowResult(`<span style="color:var(--text-secondary)">${data.reason}</span>`);
                     return;
                 }
                 if (data.variable) {
-                    const lines = (data.variations || []).map(v =>
-                        v.skipped ? `<li style="color:var(--text-secondary)">${v.combo}: ${v.reason}</li>` :
-                        v.success  ? `<li style="color:var(--success)">${v.combo}: ✓ qty ${v.calculated_qty}</li>` :
-                        `<li style="color:var(--danger)">${v.combo}: ✗ ${v.error}</li>`
-                    ).join('');
+                    const lines = (data.variations || []).map(v => {
+                        if (v.skipped) return `<li style="color:var(--text-secondary)">${v.combo}: ${v.reason}</li>`;
+                        if (!v.success) return `<li style="color:var(--danger)">${v.combo}: ✗ ${v.error}</li>`;
+                        const wcConfirmed = v.new_stock !== null && v.new_stock !== undefined
+                            ? ` <span style="color:var(--text-secondary);font-size:0.85em;">(WC: qty ${v.new_stock}, ${v.stock_status || '?'})</span>` : '';
+                        return `<li style="color:var(--success)">${v.combo}: ✓ pushed ${v.calculated_qty}${wcConfirmed}</li>`;
+                    }).join('');
                     wcShowResult(`<strong>${data.project_name}</strong> (variable product)<ul style="margin:6px 0 0 16px">${lines}</ul>`);
                     return;
                 }
                 if (data.success) {
-                    wcShowResult(`<span style="color:var(--success)">✓ <strong>${data.project_name}</strong> synced — qty ${data.calculated_qty} pushed to WooCommerce</span>`);
+                    const wcConfirmed = data.new_stock !== null && data.new_stock !== undefined
+                        ? ` <span style="color:var(--text-secondary);font-size:0.85em;">(WC confirmed: ${data.new_stock})</span>` : '';
+                    wcShowResult(`<span style="color:var(--success)">✓ <strong>${data.project_name}</strong> synced — pushed ${data.calculated_qty}${wcConfirmed}</span>`);
                 } else {
                     wcShowResult(`<span style="color:var(--danger)">✗ <strong>${data.project_name || 'Project'}</strong> sync failed: ${data.error || 'Unknown error'}</span>`);
                 }
@@ -1894,7 +1976,13 @@
                     <td class="${p.current_stock >= p.quantity_required ? 'stock-ok' : 'stock-low'}">${p.current_stock}</td>
                     <td>
                         <button class="btn btn-small" onclick="viewPart(${p.part_id})">View</button>
-                        <button class="btn btn-small" onclick="editProjectPart(${project.id}, ${p.id}, ${p.quantity_required})">Edit Qty</button>
+                        <button class="btn btn-small" onclick="editProjectPart(this)"
+                            data-project-id="${project.id}"
+                            data-part-id="${p.id}"
+                            data-qty="${p.quantity_required}"
+                            data-attr="${(p.variation_attribute||'').replace(/"/g,'&quot;')}"
+                            data-val="${(p.variation_value||'').replace(/"/g,'&quot;')}"
+                            data-is-variable="${isVariable ? '1' : '0'}">Edit</button>
                         <button class="btn btn-small btn-danger" onclick="removeProjectPart(${p.id}, ${project.id})">Remove</button>
                     </td>
                 </tr>`;
@@ -2135,37 +2223,55 @@
             });
         }
 
-        function editProjectPart(projectId, projectPartId, currentQty) {
+        function editProjectPart(btn) {
+            const projectId   = btn.dataset.projectId;
+            const partId      = btn.dataset.partId;
+            const currentQty  = btn.dataset.qty;
+            const isVariable  = btn.dataset.isVariable === '1';
+            const currentAttr = btn.dataset.attr || '';
+            const currentVal  = btn.dataset.val  || '';
+
+            const variationFields = isVariable ? `
+                <div class="form-group">
+                    <label class="form-label">Variation Attribute <span style="color:var(--text-dim);font-weight:400;">(e.g. "Connector")</span></label>
+                    <input type="text" id="editPartAttr" class="form-input" value="${currentAttr.replace(/"/g,'&quot;')}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Variation Value <span style="color:var(--text-dim);font-weight:400;">(e.g. "Male")</span></label>
+                    <input type="text" id="editPartVal" class="form-input" value="${currentVal.replace(/"/g,'&quot;')}" required>
+                </div>` : '';
+
             const modal = createModal(
-                'Edit Part Quantity',
-                `
-                    <form id="editPartQtyForm">
-                        <div class="form-group">
-                            <label class="form-label">Quantity Required per Kit</label>
-                            <input type="number" id="editPartQty" class="form-input" min="1" value="${currentQty}" required>
-                        </div>
-                        <div class="flex flex-gap">
-                            <button type="submit" class="btn btn-primary">Update</button>
-                            <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
-                        </div>
-                    </form>
-                `
+                isVariable ? 'Edit Variable Part' : 'Edit Part Quantity',
+                `<form id="editPartQtyForm">
+                    ${variationFields}
+                    <div class="form-group">
+                        <label class="form-label">Quantity Required per Kit</label>
+                        <input type="number" id="editPartQty" class="form-input" min="1" value="${currentQty}" required>
+                    </div>
+                    <div class="flex flex-gap">
+                        <button type="submit" class="btn btn-primary">Update</button>
+                        <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
+                    </div>
+                </form>`
             );
 
             document.getElementById('editPartQtyForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData();
                 formData.append('action', 'update_project_part');
-                formData.append('id', projectPartId);
+                formData.append('id', partId);
                 formData.append('quantity_required', document.getElementById('editPartQty').value);
-
+                if (isVariable) {
+                    formData.append('variation_attribute', document.getElementById('editPartAttr').value.trim());
+                    formData.append('variation_value', document.getElementById('editPartVal').value.trim());
+                }
                 try {
                     await fetch('api.php', { method: 'POST', body: formData });
                     modal.remove();
-                    document.querySelector('.modal.active')?.remove();
                     viewProject(projectId);
                 } catch (error) {
-                    alert('Error updating part quantity');
+                    alert('Error updating part');
                 }
             });
         }
@@ -2327,18 +2433,69 @@
         }
 
         async function deleteProject(id) {
-            if (!confirm('Are you sure you want to delete this project?')) return;
-            
+            const proj = projects.find(p => p.id == id);
+            const name = proj ? proj.project_name : 'this project';
+            if (!confirm(`Move "${name}" to trash?\n\nAll project data and BOM will be preserved — you can restore it from the trash bin.`)) return;
             const formData = new FormData();
             formData.append('action', 'delete_project');
             formData.append('id', id);
-
             try {
-                await fetch('api.php', { method: 'POST', body: formData });
+                const r = await fetch('api.php', { method: 'POST', body: formData });
+                const data = await r.json();
+                if (!data.success) { alert('Error moving project to trash'); return; }
                 loadProjects();
+                loadTrashedProjects();
             } catch (error) {
-                alert('Error deleting project');
+                alert('Error moving project to trash');
             }
+        }
+
+        async function restoreProject(id, btn) {
+            const name = btn.closest('tr').querySelector('td').textContent.trim();
+            if (!confirm(`Restore "${name}" to active projects?`)) return;
+            const formData = new FormData();
+            formData.append('action', 'restore_project');
+            formData.append('id', id);
+            try {
+                const r = await fetch('api.php', { method: 'POST', body: formData });
+                const data = await r.json();
+                if (!data.success) { alert('Error restoring project'); return; }
+                loadProjects();
+                loadTrashedProjects();
+            } catch (error) {
+                alert('Error restoring project');
+            }
+        }
+
+        let trashedVisible = false;
+        function toggleTrashedProjects() {
+            trashedVisible = !trashedVisible;
+            document.getElementById('trashedProjectsList').style.display = trashedVisible ? 'block' : 'none';
+            document.getElementById('trashedToggleLabel').textContent = trashedVisible ? 'Hide' : 'Show';
+        }
+
+        async function loadTrashedProjects() {
+            try {
+                const r = await fetch('api.php?action=get_trashed_projects');
+                const data = await r.json();
+                const card = document.getElementById('trashedProjectsCard');
+                if (!data.length) { card.style.display = 'none'; return; }
+                card.style.display = 'block';
+                document.getElementById('trashedCount').textContent = `(${data.length})`;
+                document.getElementById('trashedProjectsList').innerHTML = `
+                    <table class="data-table" style="margin:0;">
+                        <thead><tr>
+                            <th>Project Name</th><th>Description</th><th></th>
+                        </tr></thead>
+                        <tbody>${data.map(p => `
+                            <tr>
+                                <td style="color:var(--text-secondary);font-style:italic;">${p.project_name}</td>
+                                <td style="color:var(--text-dim)">${p.description || '—'}</td>
+                                <td><button class="btn btn-small" onclick="restoreProject(${p.id}, this)">Restore</button></td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>`;
+            } catch(e) { /* silent */ }
         }
 
         async function autoFillPartNumber() {

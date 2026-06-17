@@ -55,6 +55,120 @@ if ($action === 'get_dashboard') {
         'low_stock_parts' => $db->query("SELECT * FROM parts WHERE current_stock <= min_stock_level ORDER BY current_stock ASC LIMIT 10")->fetchAll(),
         'recent_orders' => $db->query("SELECT o.*, p.project_name FROM orders o JOIN projects p ON o.project_id = p.id ORDER BY o.created_at DESC LIMIT 5")->fetchAll(),
     ];
+
+    // ── Bottleneck insights ───────────────────────────────────────────────────
+    // One query fetches all BOM rows for all active projects at once.
+    $bom_rows = $db->query("
+        SELECT
+            proj.id          AS project_id,
+            proj.project_name,
+            proj.retail_price,
+            pp.quantity_required,
+            pp.variation_attribute,
+            p.part_name,
+            p.part_number,
+            p.current_stock,
+            (SELECT cost  FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) AS preferred_cost,
+            (SELECT MIN(cost) FROM part_sources ps WHERE ps.part_id = p.id) AS lowest_cost
+        FROM projects proj
+        JOIN project_parts pp ON proj.id = pp.project_id
+        JOIN parts p          ON pp.part_id = p.id
+        WHERE proj.status = 'active'
+        ORDER BY proj.project_name, p.part_name
+    ")->fetchAll();
+
+    // Group rows by project
+    $by_project = [];
+    foreach ($bom_rows as $row) {
+        $pid = $row['project_id'];
+        if (!isset($by_project[$pid])) {
+            $by_project[$pid] = [
+                'project_name' => $row['project_name'],
+                'retail_price' => (float) $row['retail_price'],
+                'parts'        => [],
+            ];
+        }
+        $by_project[$pid]['parts'][] = $row;
+    }
+
+    $bottleneck_insights = [];
+    foreach ($by_project as $project_id => $project) {
+        // Only fixed parts constrain the buildable count
+        $fixed = array_values(array_filter(
+            $project['parts'],
+            fn($p) => empty($p['variation_attribute']) && $p['quantity_required'] > 0
+        ));
+        if (empty($fixed)) continue;
+
+        // Annotate each part with its buildable count and unit cost
+        foreach ($fixed as &$fp) {
+            $fp['buildable']  = (int) floor($fp['current_stock'] / $fp['quantity_required']);
+            $fp['unit_cost']  = (float) ($fp['preferred_cost'] ?? $fp['lowest_cost'] ?? 0);
+        }
+        unset($fp);
+
+        // Sort ascending so index 0 = current bottleneck
+        usort($fixed, fn($a, $b) => $a['buildable'] - $b['buildable']);
+
+        $min_buildable = $fixed[0]['buildable'];
+
+        // Second-lowest unique buildable value = what we'd reach after clearing the bottleneck
+        $next_level = null;
+        foreach ($fixed as $fp) {
+            if ($fp['buildable'] > $min_buildable) { $next_level = $fp['buildable']; break; }
+        }
+
+        // If all parts are equally constraining, target +5 kits as the horizon
+        $target       = $next_level ?? ($min_buildable + 5);
+        $kits_unlocked = $target - $min_buildable;
+
+        // Collect bottleneck parts (those sitting at the minimum)
+        $bottleneck_parts = [];
+        $total_order_cost = 0;
+        foreach ($fixed as $fp) {
+            if ($fp['buildable'] !== $min_buildable) break; // sorted — safe to break
+            $units_needed = max(0, ($target * $fp['quantity_required']) - $fp['current_stock']);
+            $cost         = $fp['unit_cost'] > 0 ? round($units_needed * $fp['unit_cost'], 2) : null;
+            if ($cost !== null) $total_order_cost += $cost;
+            $bottleneck_parts[] = [
+                'part_name'         => $fp['part_name'],
+                'part_number'       => $fp['part_number'],
+                'current_stock'     => $fp['current_stock'],
+                'quantity_required' => $fp['quantity_required'],
+                'units_to_order'    => $units_needed,
+                'estimated_cost'    => $cost,
+            ];
+        }
+
+        // Name of the part that becomes the NEW bottleneck after ordering current ones
+        $next_constraint_name = null;
+        if ($next_level !== null) {
+            foreach ($fixed as $fp) {
+                if ($fp['buildable'] === $next_level) {
+                    $next_constraint_name = $fp['part_name'];
+                    break;
+                }
+            }
+        }
+
+        $bottleneck_insights[] = [
+            'project_id'           => $project_id,
+            'project_name'         => $project['project_name'],
+            'retail_price'         => $project['retail_price'],
+            'current_buildable'    => $min_buildable,
+            'target_buildable'     => $target,
+            'kits_unlocked'        => $kits_unlocked,
+            'bottleneck_parts'     => $bottleneck_parts,
+            'total_order_cost'     => $total_order_cost > 0 ? $total_order_cost : null,
+            'next_constraint_name' => $next_constraint_name,
+            'total_fixed_parts'    => count($fixed),
+        ];
+    }
+
+    // Most urgent first: 0-buildable projects up top, then fewest kits
+    usort($bottleneck_insights, fn($a, $b) => $a['current_buildable'] - $b['current_buildable']);
+
+    $stats['bottleneck_insights'] = $bottleneck_insights;
     jsonResponse($stats);
 }
 
@@ -64,6 +178,7 @@ if ($action === 'get_projects') {
         SELECT p.*, COUNT(DISTINCT pp.part_id) as parts_count
         FROM projects p
         LEFT JOIN project_parts pp ON p.id = pp.project_id
+        WHERE p.status IN ('active','archived','planning')
         GROUP BY p.id
         ORDER BY p.created_at DESC
     ")->fetchAll();
@@ -251,9 +366,57 @@ if ($action === 'save_project') {
 
 if ($action === 'delete_project') {
     $id = $_POST['id'] ?? 0;
-    $stmt = $db->prepare("DELETE FROM projects WHERE id = ?");
+    $stmt = $db->prepare("UPDATE projects SET status = 'trashed' WHERE id = ?");
     $stmt->execute([$id]);
     jsonResponse(['success' => true]);
+}
+
+if ($action === 'restore_project') {
+    $id = $_POST['id'] ?? 0;
+    $stmt = $db->prepare("UPDATE projects SET status = 'active' WHERE id = ?");
+    $stmt->execute([$id]);
+    jsonResponse(['success' => true]);
+}
+
+if ($action === 'get_trashed_projects') {
+    $projects = $db->query("SELECT id, project_name, description, created_at FROM projects WHERE status NOT IN ('active','archived','planning') ORDER BY project_name")->fetchAll();
+    jsonResponse($projects);
+}
+
+// WooCommerce sync — proxied through api.php so browser content blockers
+// don't flag the woocommerce_webhook.php URL pattern.
+if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
+    require_once 'woocommerce_sync.php';
+
+    if ($action === 'wc_status') {
+        $stmt = $db->query("
+            SELECT id, project_name, woocommerce_product_id, status
+            FROM projects
+            WHERE woocommerce_product_id IS NOT NULL
+            ORDER BY project_name
+        ");
+        $out = [];
+        foreach ($stmt->fetchAll() as $p) {
+            $out[] = [
+                'project_id'               => $p['id'],
+                'project_name'             => $p['project_name'],
+                'wc_product_id'            => $p['woocommerce_product_id'],
+                'calculated_available_qty' => wc_calculate_available_qty($db, $p['id']),
+                'project_status'           => $p['status'],
+            ];
+        }
+        jsonResponse($out);
+    }
+
+    if ($action === 'wc_sync') {
+        $project_id = (int)($_GET['project_id'] ?? $_POST['project_id'] ?? 0);
+        jsonResponse(wc_sync_project($db, $project_id));
+    }
+
+    if ($action === 'wc_sync_all') {
+        $results = wc_sync_all_projects($db);
+        jsonResponse(['synced' => count($results), 'results' => $results]);
+    }
 }
 
 // Parts
@@ -436,6 +599,15 @@ if ($action === 'update_project_part') {
     $quantity = (int)($_POST['quantity_required'] ?? 1);
     $stmt = $db->prepare("UPDATE project_parts SET quantity_required = ? WHERE id = ?");
     $stmt->execute([$quantity, $id]);
+
+    // Also update variation fields if provided
+    if (isset($_POST['variation_attribute'])) {
+        $attr = trim($_POST['variation_attribute']);
+        $val  = trim($_POST['variation_value'] ?? '');
+        $stmt = $db->prepare("UPDATE project_parts SET variation_attribute = ?, variation_value = ? WHERE id = ?");
+        $stmt->execute([$attr ?: null, $val ?: null, $id]);
+    }
+
     jsonResponse(['success' => true]);
 }
 

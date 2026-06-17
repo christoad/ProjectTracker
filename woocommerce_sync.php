@@ -210,11 +210,15 @@ function wc_do_put(string $url, string $payload, array $cfg): array {
     ]);
     $response  = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_err  = curl_error($ch);
     curl_close($ch);
 
     $result = json_decode($response, true);
     if ($http_code >= 200 && $http_code < 300 && isset($result['id'])) {
-        return ['success' => true, 'product_id' => $result['id'], 'new_stock' => $result['stock_quantity'] ?? null];
+        return ['success' => true, 'product_id' => $result['id'], 'new_stock' => $result['stock_quantity'] ?? null, 'stock_status' => $result['stock_status'] ?? null];
+    }
+    if ($http_code === 0) {
+        return ['error' => 'No response from WooCommerce' . ($curl_err ? ": $curl_err" : ' (connection failed or timed out)')];
     }
     return ['error' => $result['message'] ?? "HTTP $http_code", 'raw' => $result];
 }
@@ -237,6 +241,15 @@ function wc_sync_project($db, int $project_id): array {
     $wc_product_id = (int) $project['woocommerce_product_id'];
 
     if (wc_is_variable_project($db, $project_id)) {
+        $cfg = wc_get_config();
+
+        // Disable parent-level stock management so WooCommerce uses per-variation stock.
+        // If the parent manages stock at 0, it overrides all variation availability.
+        if ($cfg) {
+            $parent_url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . $wc_product_id;
+            wc_do_put($parent_url, json_encode(['manage_stock' => false]), $cfg);
+        }
+
         $attrs  = wc_get_project_attributes($db, $project_id);
         $combos = wc_generate_combos($attrs);
 
