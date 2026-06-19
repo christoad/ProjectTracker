@@ -164,6 +164,54 @@ function wc_calculate_variation_qty($db, int $project_id, array $combo): int {
     return $min === PHP_INT_MAX ? 0 : $min;
 }
 
+// ── WooCommerce fetch (live stock) ────────────────────────────────────────────
+
+/** Fetch current stock_quantity for a simple WooCommerce product. Returns int or null on failure. */
+function wc_fetch_product_stock(int $wc_product_id): ?int {
+    return wc_fetch_stock_live($wc_product_id);
+}
+
+function wc_fetch_stock_live(int $wc_product_id): ?int {
+    $cfg = wc_get_config();
+    if (!$cfg) return null;
+
+    $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . $wc_product_id;
+    $ch  = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+        CURLOPT_TIMEOUT        => 10,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code !== 200) return null;
+    $data = json_decode($response, true);
+    return isset($data['stock_quantity']) ? (int) $data['stock_quantity'] : null;
+}
+
+/** Fetch current stock_quantity for a specific WooCommerce product variation. Returns int or null on failure. */
+function wc_fetch_variation_stock_live(int $wc_product_id, int $wc_variation_id): ?int {
+    $cfg = wc_get_config();
+    if (!$cfg) return null;
+
+    $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . $wc_product_id . '/variations/' . $wc_variation_id;
+    $ch  = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+        CURLOPT_TIMEOUT        => 10,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code !== 200) return null;
+    $data = json_decode($response, true);
+    return isset($data['stock_quantity']) ? (int) $data['stock_quantity'] : null;
+}
+
 // ── WooCommerce push ──────────────────────────────────────────────────────────
 
 /** Push stock to a simple (non-variable) WooCommerce product. */

@@ -227,6 +227,19 @@
             padding: 18px 20px;
         }
 
+        .parts-header-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        #partsProjectFilter { width: 200px; }
+        #partsSearchInput   { width: 220px; }
+
+        /* Order number and date should never wrap */
+        #ordersTable td:nth-child(1),
+        #ordersTable td:nth-child(2) { white-space: nowrap; }
+
         /* Buttons */
         .btn {
             padding: 5px 12px;
@@ -620,9 +633,64 @@
                 padding: 0 1rem;
             }
 
+            /* Nav: scroll horizontally, never wrap tab text */
             .nav-tabs {
                 overflow-x: auto;
-                padding: 0 1rem;
+                padding: 0 0.5rem;
+                scrollbar-width: none;
+            }
+            .nav-tabs::-webkit-scrollbar { display: none; }
+            .nav-tab {
+                white-space: nowrap;
+                font-size: 12px;
+                padding: 10px 12px;
+            }
+
+            /* Tables: enforce minimum widths so columns stay readable;
+               containers already have overflow-x:auto — this makes them scroll */
+            .table-container {
+                -webkit-overflow-scrolling: touch;
+            }
+            #partsTable    { min-width: 660px; }
+            #projectsTable { min-width: 600px; }
+            #ordersTable   { min-width: 620px; }
+
+            /* Card headers: allow wrapping when controls don't fit */
+            .card-header {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+
+            /* Parts header controls: go full-width and let items fill the row */
+            .parts-header-controls {
+                width: 100%;
+            }
+            #partsProjectFilter,
+            #partsSearchInput {
+                flex: 1;
+                min-width: 120px;
+                width: auto;
+            }
+
+            /* Reduce card body padding */
+            .card-body {
+                padding: 12px 14px;
+            }
+
+            /* App header: tighten logo subtitle on small screens */
+            .app-logo-subtitle {
+                display: none;
+            }
+
+            /* Business section header: stack title and period picker */
+            .section-header {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 0.75rem;
+                margin-bottom: 1rem !important;
+            }
+            .section-header select {
+                width: 100%;
             }
         }
 
@@ -968,8 +1036,11 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">Parts Inventory</h2>
-                        <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <input type="text" id="partsSearchInput" class="form-input" placeholder="Search parts..." style="width: 220px;" oninput="filterPartsTable(this.value)">
+                        <div class="parts-header-controls">
+                            <select id="partsProjectFilter" class="form-input" onchange="onPartsProjectFilterChange()">
+                                <option value="">All Projects</option>
+                            </select>
+                            <input type="text" id="partsSearchInput" class="form-input" placeholder="Search parts..." oninput="filterPartsTable(this.value)">
                             <button class="btn btn-primary" onclick="openPartModal()">+ New Part</button>
                         </div>
                     </div>
@@ -1527,20 +1598,57 @@
                     wcShowResult('<span style="color:var(--text-secondary)">No projects are mapped to WooCommerce products yet.</span>');
                     return;
                 }
-                const rows = data.map(p => `
-                    <tr>
-                        <td style="padding:4px 8px;font-weight:600">${p.project_name}</td>
-                        <td style="padding:4px 8px;font-family:var(--font-mono);color:${p.calculated_available_qty > 0 ? 'var(--success)' : 'var(--danger)'}">${p.calculated_available_qty}</td>
-                        <td style="padding:4px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${p.wc_product_id}</td>
-                        <td style="padding:4px 8px"><span class="badge badge-${p.project_status === 'active' ? 'success' : 'secondary'}">${p.project_status}</span></td>
-                    </tr>`).join('');
+
+                let anyMismatch = false;
+                const rows = data.flatMap(p => {
+                    if (p.variable) {
+                        return (p.variations || []).map((v, i) => {
+                            if (!v.match) anyMismatch = true;
+                            const icon  = v.match ? '✓' : '⚠';
+                            const color = v.match ? 'var(--success)' : 'var(--warning)';
+                            const wcVal = v.wc_qty !== null && v.wc_qty !== undefined ? v.wc_qty : '?';
+                            const qtyColor = v.tracker_qty > 0 ? 'var(--success)' : 'var(--danger)';
+                            return `<tr style="${i === 0 ? 'border-top:1px solid var(--border-card)' : ''}">
+                                <td style="padding:6px 8px;font-weight:600;${i > 0 ? 'color:transparent;font-size:0px;padding-top:0' : ''}">${i === 0 ? p.project_name : ''}</td>
+                                <td style="padding:6px 8px;color:var(--text-secondary);font-size:11px;">${v.combo}</td>
+                                <td style="padding:6px 8px;font-family:var(--font-mono);color:${qtyColor}">${v.tracker_qty}</td>
+                                <td style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
+                                <td style="padding:6px 8px;color:${color};font-weight:700">${icon}</td>
+                                <td style="padding:6px 8px">${!v.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id})" style="font-size:10px;">Sync</button>` : ''}</td>
+                            </tr>`;
+                        });
+                    } else {
+                        if (!p.match) anyMismatch = true;
+                        const icon  = p.match ? '✓' : '⚠';
+                        const color = p.match ? 'var(--success)' : 'var(--warning)';
+                        const wcVal = p.wc_stock_qty !== null && p.wc_stock_qty !== undefined ? p.wc_stock_qty : '?';
+                        const qtyColor = p.calculated_available_qty > 0 ? 'var(--success)' : 'var(--danger)';
+                        return [`<tr style="border-top:1px solid var(--border-card)">
+                            <td style="padding:6px 8px;font-weight:600">${p.project_name}</td>
+                            <td style="padding:6px 8px;color:var(--text-secondary);font-size:11px;">—</td>
+                            <td style="padding:6px 8px;font-family:var(--font-mono);color:${qtyColor}">${p.calculated_available_qty}</td>
+                            <td style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
+                            <td style="padding:6px 8px;color:${color};font-weight:700">${icon}</td>
+                            <td style="padding:6px 8px">${!p.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id})" style="font-size:10px;">Sync</button>` : ''}</td>
+                        </tr>`];
+                    }
+                }).join('');
+
                 wcShowResult(`<strong>WooCommerce Stock Status</strong>
                     <table style="margin-top:8px;width:100%;border-collapse:collapse;font-size:0.85rem;">
-                        <thead><tr style="color:var(--text-secondary);text-align:left;border-bottom:1px solid var(--border-card)">
-                            <th style="padding:3px 8px">Project</th><th style="padding:3px 8px">Available Qty</th><th style="padding:3px 8px">WC Product ID</th><th style="padding:3px 8px">Status</th>
-                        </tr></thead>
+                        <thead>
+                            <tr style="color:var(--text-secondary);text-align:left;border-bottom:2px solid var(--border-table-head);">
+                                <th style="padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;">Project</th>
+                                <th style="padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;">Variation</th>
+                                <th style="padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;">Tracker</th>
+                                <th style="padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;">WooCommerce</th>
+                                <th style="padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;">Sync</th>
+                                <th style="padding:4px 8px;"></th>
+                            </tr>
+                        </thead>
                         <tbody>${rows}</tbody>
-                    </table>`);
+                    </table>
+                    ${anyMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some quantities are out of sync — use the Sync buttons above, or Sync All.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All quantities match WooCommerce.</div>'}`);
             } catch(e) {
                 wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
             }
@@ -1580,17 +1688,44 @@
 
         // Parts
         let allPartsCache = [];
+        let partsProjectPartIds = null; // Set of part IDs for the selected project filter, or null for all
 
         async function loadParts() {
             try {
                 const response = await fetch('api.php?action=get_parts');
                 allPartsCache = await response.json();
                 parts = allPartsCache;
+
+                // Populate the project dropdown (fetch projects if not yet loaded)
+                const sel = document.getElementById('partsProjectFilter');
+                if (sel && sel.options.length <= 1) {
+                    const pResp = await fetch('api.php?action=get_projects');
+                    const pList = await pResp.json();
+                    pList.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = p.id;
+                        opt.textContent = p.project_name;
+                        sel.appendChild(opt);
+                    });
+                }
+
                 const currentSearch = document.getElementById('partsSearchInput')?.value || '';
                 renderPartsTable(currentSearch);
             } catch (error) {
                 console.error('Error loading parts:', error);
             }
+        }
+
+        async function onPartsProjectFilterChange() {
+            const projectId = document.getElementById('partsProjectFilter').value;
+            if (!projectId) {
+                partsProjectPartIds = null;
+            } else {
+                const resp = await fetch(`api.php?action=get_project&id=${projectId}`);
+                const project = await resp.json();
+                partsProjectPartIds = new Set((project.parts || []).map(p => parseInt(p.part_id)));
+            }
+            renderPartsTable(document.getElementById('partsSearchInput')?.value || '');
         }
 
         function filterPartsTable(query) {
@@ -1599,9 +1734,14 @@
 
         function renderPartsTable(searchQuery) {
             let filtered = allPartsCache;
+
+            if (partsProjectPartIds !== null) {
+                filtered = filtered.filter(p => partsProjectPartIds.has(parseInt(p.id)));
+            }
+
             if (searchQuery && searchQuery.trim()) {
                 const q = searchQuery.trim().toLowerCase();
-                filtered = allPartsCache.filter(p =>
+                filtered = filtered.filter(p =>
                     (p.part_number || '').toLowerCase().includes(q) ||
                     (p.part_name || '').toLowerCase().includes(q) ||
                     (p.category || '').toLowerCase().includes(q)
