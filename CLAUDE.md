@@ -182,6 +182,43 @@ The USPS API integration (address validation, rate lookup, tracking, label gener
 
 ---
 
+## WooCommerce Integration — Operational Notes
+
+### How inventory deduction works end-to-end
+1. WooCommerce fires a webhook (order.created or order.updated) to `woocommerce_webhook.php`
+2. The webhook looks up the WC product → finds the matching project in `projects.woocommerce_product_id`
+3. For variable products, it looks up the WC variation ID in `project_variation_mappings` to get the `combo_key`
+4. It calls `wc_deduct_bom_inventory()`: deducts all fixed BOM parts (variation_attribute='') plus the variable parts matching the combo
+5. Sets `orders.inventory_deducted = 1` — subsequent webhooks for the same order are skipped (idempotent)
+6. Calls `wc_sync_project()` to push recalculated stock back to WooCommerce
+
+### Order statuses that trigger deduction
+`processing`, `on-hold`, `completed` → deduct inventory  
+`cancelled`, `refunded` → restore inventory  
+All others → skipped
+
+### Variation mappings must stay in sync with the BOM
+The `project_variation_mappings` table stores `combo_key` values like `Color:Grey` that must **exactly match** the `variation_attribute` + `variation_value` pairs in `project_parts`. If you restructure a WooCommerce product's variation attributes (rename, add, remove), the mappings table goes stale and orders will silently fail to deduct variable parts (fixed parts still deduct correctly). Fix: delete the stale rows and re-enter correct mappings via the project's Variation Mappings UI.
+
+### Variable product parent stock management
+WooCommerce parent products must have `manage_stock: false` — otherwise the parent-level stock overrides all variation availability. The sync code (`wc_sync_project`) automatically PUTs `manage_stock: false` on the parent before pushing per-variation stock.
+
+### Safari content blocker workaround
+Safari blocks requests to URLs containing "woocommerce". All WC sync calls from the UI go through `api.php` (actions: `wc_status`, `wc_sync`, `wc_sync_all`) to avoid this. The raw `woocommerce_webhook.php` endpoint still exists for WooCommerce's own webhook deliveries and for SSH-based manual syncs.
+
+### Manual sync via SSH (when UI isn't usable)
+```bash
+ssh dreamhost-sota "curl -s 'https://ki6cr.com/projects/woocommerce_webhook.php?action=sync&project_id=X'"
+```
+
+### Debugging a missed deduction
+If inventory doesn't deduct after an order:
+1. Check `orders` table — was a row created? Is `inventory_deducted = 1`? What is `variation_combo_key`?
+2. Check `project_variation_mappings` — does the combo_key on the order match any row? Does it match the actual `variation_attribute`/`variation_value` in `project_parts`?
+3. Check the WooCommerce webhook delivery log (WC Admin → Settings → Advanced → Webhooks → Edit → Recent Deliveries) — the response body contains a full `item_log` with per-part deduction results including `rows_affected`
+
+---
+
 ## Pending Decisions / TODO (as of 2026-06-17)
 
 ### WooCommerce Shipping Strategy
