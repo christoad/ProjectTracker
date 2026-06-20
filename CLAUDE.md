@@ -1,10 +1,39 @@
-# CLAUDE.md
+# CLAUDE.md — KI6CR Inventory Manager (ProjectTracker)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working in this repository.
+
+---
 
 ## What This Is
 
 KI6CR Inventory Manager — a single-operator ham radio kit business tool for tracking parts inventory, kit projects (BOMs), customer orders, and business P&L. Built in PHP/MySQL, deployed to a shared DreamHost server.
+
+---
+
+## Two-Project Architecture — READ THIS FIRST
+
+This project (`ProjectTracker`) and the WooCommerce webstore (`KI6CR-LABS-Webstore`) are tightly coupled but live in separate folders. Understanding the division of responsibility is critical to avoid editing the wrong files.
+
+### ProjectTracker — source of truth for everything backend
+- **All inventory logic, webhook handlers, and API files live here.**
+- Deploys to: `ki6cr.com/projects/` (the inventory management app)
+- Git repo: this folder is the git repository
+
+### KI6CR-LABS-Webstore — WooCommerce store customizations only
+- Contains only WordPress/WooCommerce theme files and plugins:
+  `ki6cr-custom.php`, `ki6cr-shipping-banner.php`, `index.php`, etc.
+- Deploys to: `ki6cr-labs.com/` (the public-facing WooCommerce store)
+- Does NOT contain webhook handlers, sync logic, or api.php
+
+### Files that exist ONLY in ProjectTracker (never in KI6CR-LABS-Webstore)
+- `api.php` — tracker AJAX backend
+- `woocommerce_webhook.php` — WC order webhook handler + sync trigger endpoint
+- `woocommerce_sync.php` — shared helper functions for WC integration
+- `shippo_webhook.php` — Shippo label webhook handler
+
+If you ever find copies of these files in `KI6CR-LABS-Webstore/`, they are stale duplicates — delete them from there and work only from `ProjectTracker/`.
+
+---
 
 ## Deployment
 
@@ -21,88 +50,174 @@ rsync -avz --include="*.php" --include="*.js" --exclude="*" . dreamhost-sota:/ho
 
 `.env` is never committed and must be created manually on the server from `.env.example`.
 
-## Architecture
+---
 
-All files are flat in the project root — no subdirectory structure.
+## File Reference
 
 | File | Role |
 |------|------|
 | `index.php` | Single-page app: all HTML, CSS (~800 lines), and JS (~1700 lines). No external JS frameworks. |
-| `api.php` | Central AJAX backend. All `action=` requests are dispatched via `if ($action === '...')` chains — no routing framework. |
-| `config.php` | DB connection (`getDB()`), session bootstrap, auth helpers (`isLoggedIn()`, `requireLogin()`, `jsonResponse()`). No USPS constants — those were removed. |
-| `business_metrics.php` | Separate P&L/metrics endpoint — queried by `index.php` for the Business tab. |
-| `order_webhook.php` | Receives POST from external order forms (CORS-open). Will be repurposed or replaced for WooCommerce. |
-| `quick_order.php` | Auth-required UI for parsing WPForms notification emails and manually entering orders. |
-| `get_active_projects.php` | Public endpoint returning active projects. Will be extended for WooCommerce stock sync. |
-| `send_customer_email.php` | Sends order confirmation emails to customers. |
-| `javascript_additions.js` / `sortable_tables.js` | JS snippets — check if these are currently wired into `index.php` before editing. |
+| `api.php` | Central AJAX backend. All `action=` requests dispatched via `if ($action === '...')` chains. |
+| `config.php` | DB connection (`getDB()`), session bootstrap, auth helpers. |
+| `woocommerce_webhook.php` | Receives WooCommerce order webhooks (POST). Also serves as manual sync/status trigger (GET). |
+| `woocommerce_sync.php` | All WC integration helpers: stock calc, push, deduct, restore, order management. |
+| `shippo_webhook.php` | Receives Shippo `transaction_created` webhooks; updates tracker + WC order status. |
+| `business_metrics.php` | Separate P&L/metrics endpoint queried by `index.php` for the Business tab. |
+| `order_detail.php` | Standalone order detail page. |
+| `quick_order.php` | Auth-required UI for manually entering orders. |
+| `invoice.php` | Print-focused invoice page. |
+| `send_customer_email.php` | Sends order confirmation emails. |
+
+---
 
 ## Data Model (Key Tables)
 
-- `projects` — kit products with `retail_price`, `status` (active/archived)
+- `projects` — kit products with `retail_price`, `status`, `woocommerce_product_id`
 - `parts` — shared inventory with `current_stock`, `weighted_avg_cost`, `min_stock_level`
-- `project_parts` — BOM: which parts (and `quantity_required`) belong to each project
+- `project_parts` — BOM: which parts (and `quantity_required`) belong to each project. Has `variation_attribute` and `variation_value` columns for variable kits.
+- `project_variation_mappings` — maps each BOM combo_key to a WooCommerce variation ID
 - `part_sources` — supplier options per part; one marked `is_preferred`
-- `orders` — customer orders linked to a project; includes shipping, tracking, status
+- `orders` — customer orders linked to a project; `order_number` uses "WC-{id}" format for WooCommerce orders
 - `inventory_checkins` — stock receipt log; drives `weighted_avg_cost` via weighted average
-- `project_expenses` — research/dev costs per project (subtracted in net profit calc)
-- `users` — single-user auth with `password_hash`
+- `project_expenses` — research/dev costs per project
+
+---
+
+## BOM Type System — Fixed vs Variable Parts
+
+Every `project_parts` row is either **fixed** or **variable**:
+
+| Type | `variation_attribute` | `variation_value` | Meaning |
+|------|-----------------------|-------------------|---------|
+| Fixed | `''` (empty string) | `''` | Shared across all variations; always deducted |
+| Variable | e.g. `'Color'` | e.g. `'Blue'` | Only deducted when this specific value is ordered |
+
+**Example — CEC CW Cable Adaptor:**
+- CONN-003 (fixed) → deducted for every order regardless of color
+- 42-010 Blue cable (variable, Color=Blue) → deducted only for Blue orders
+- 42-009 Grey cable (variable, Color=Grey) → deducted only for Grey orders
+
+The BOM UI in `index.php` lets you assign variation_attribute/variation_value when adding a part to a project.
+
+---
+
+## Combo Key Convention — CRITICAL
+
+A **combo_key** is a pipe-delimited string representing a specific variation combination, e.g. `"Color:Blue"` or `"Color:Blue|Size:M"`.
+
+**Rule: combo_key values are always passed as raw strings. Functions in `woocommerce_sync.php` parse them internally.**
+
+```php
+// CORRECT
+wc_deduct_bom_inventory($db, $project_id, $qty, 'Color:Blue');
+wc_calculate_variation_qty($db, $project_id, 'Color:Blue');
+
+// WRONG — causes variable parts to be silently skipped
+$parsed = wc_parse_combo_key('Color:Blue');  // → ['Color' => 'Blue']
+wc_deduct_bom_inventory($db, $project_id, $qty, $parsed);  // BUG
+```
+
+This rule exists because PHP will silently coerce an array to the string "Array" in many contexts, causing `wc_parse_combo_key` to receive "Array" and return an empty result — meaning variable parts are never found and never deducted.
+
+---
+
+## WooCommerce Webhook Flow
+
+### Order comes in (new purchase)
+
+1. Customer buys on ki6cr-labs.com
+2. WooCommerce fires **two** webhooks nearly simultaneously:
+   - `order.created` (status = processing)
+   - `order.updated` (status = processing)
+3. Both hit `woocommerce_webhook.php` (POST)
+4. Each webhook does `SELECT ... FOR UPDATE` inside a transaction — the second request blocks until the first commits
+5. First request: deducts BOM inventory, inserts order row with `inventory_deducted=1`
+6. Second request: sees `inventory_deducted=1`, skips (idempotent)
+7. Pushes recalculated stock counts to WooCommerce via REST API
+
+### Order statuses and their inventory effect
+
+| WC Status | Action |
+|-----------|--------|
+| `processing` | Deduct inventory |
+| `on-hold` | Deduct inventory |
+| `completed` | **No action** (already deducted at processing) |
+| `cancelled` | Restore inventory |
+| `refunded` | Restore inventory |
+| All others | Skipped |
+
+**`completed` must NOT trigger deduction.** Shippo marks WooCommerce orders as `completed` when a label is printed, which fires another `order.updated` webhook. If `completed` were in the deduct list, it would double-deduct every time you ship.
+
+### Shippo label printed
+
+1. You print a label in Shippo
+2. Shippo fires `transaction_created` to `shippo_webhook.php`
+3. Webhook resolves the WC order ID via Shippo's REST API (`shop_order_id` field)
+4. Updates tracker: `status = shipped`, `tracking_number`, `tracking_url`, `shipped_at = NOW()`
+5. Calls WooCommerce REST API to set order status → `completed`
+6. Adds customer-visible tracking note to WC order
+
+### Order cancelled
+
+1. WooCommerce fires `order.updated` (status = cancelled or refunded)
+2. `woocommerce_webhook.php` looks up the original `variation_combo_key` stored on the order
+3. Restores exactly the parts that were deducted (fixed + the original variation parts)
+4. Sets `inventory_deducted = 0` on the order row
+
+---
+
+## Race Condition Protection
+
+WooCommerce consistently delivers duplicate webhooks for new orders. Protection is applied at two levels:
+
+1. **Application level:** The deduction block uses `SELECT ... FOR UPDATE` inside a PDO transaction. The second concurrent request blocks on the lock, then sees `inventory_deducted=1` and exits without touching inventory.
+
+2. **Database level:** A UNIQUE constraint on `orders(order_number, project_id)` prevents duplicate rows from being inserted even if the application logic somehow fails. Run `db_migrate.php` to install this constraint.
+
+---
+
+## Variation Mapping Maintenance
+
+The `project_variation_mappings` table stores `combo_key` values that must **exactly match** the `variation_attribute` + `variation_value` pairs in `project_parts`. If you restructure a WooCommerce product's variation attributes (rename, add, remove options), the mappings go stale.
+
+**Symptoms of stale mappings:**
+- Fixed parts (like CONN-003) deduct correctly
+- Variable parts (specific color cables) do NOT deduct
+- WooCommerce stock numbers diverge from tracker
+
+**Fix:** Delete the stale rows from `project_variation_mappings` and re-enter correct mappings via the project's Variation Mappings UI in the tracker.
+
+---
 
 ## Cost / Profit Logic
 
-`weighted_avg_cost` on `parts` is recalculated on each `checkin_inventory` action (new stock received). BOM cost uses weighted avg cost first, falling back to preferred supplier price, then lowest supplier price. Buildable kit count is `floor(min(current_stock / quantity_required))` across all BOM parts. Profit = revenue from sold orders minus COGS and `project_expenses`.
+`weighted_avg_cost` on `parts` is recalculated on each `checkin_inventory` action. BOM cost uses weighted avg cost first, falling back to preferred supplier price, then lowest supplier price. Buildable kit count is `floor(min(current_stock / quantity_required))` across all fixed BOM parts, then constrained by each variation group.
 
-## BOM CSV Export
-
-`exportBOM()` in `index.php` generates a CSV client-side from the loaded project data. The filename format is `BOM_<project_slug>_<date>.csv`.
+---
 
 ## Auth
 
 Session-based. `requireLogin()` returns 401 JSON if not authenticated — the frontend JS (`checkAuth()`) redirects to the login overlay on 401.
 
-## WooCommerce Integration — Roadmap
-
-The customer-facing storefront will be a WooCommerce store on **KI6CR-labs.com**. WooCommerce has not been installed yet (as of 2026-05-08). This inventory tool will serve as the back-end source of truth for inventory and orders; WooCommerce will be the public-facing store.
-
-**Architecture intent:**
-- This tool is the inventory source of truth. WooCommerce does not understand BOMs or parts — only buildable kit counts pushed to it.
-- WooCommerce receives customer orders and payments; it pushes new orders into this tool via webhook.
-- When orders are fulfilled here (status → shipped/completed), inventory is deducted and updated stock counts are pushed back to WooCommerce.
-
-**Planned API work (not yet built):**
-
-| Phase | What | Notes |
-|-------|------|-------|
-| 1 | `wc_get_stock` endpoint | Returns buildable kit count per project. WooCommerce polls or is notified. Secured with shared API key in `.env`. |
-| 2 | `wc_new_order` endpoint | Receives new WooCommerce orders and creates records in the `orders` table. Replaces old `order_webhook.php` flow. |
-| 3 | Push stock updates to WooCommerce | After check-in or fulfillment, call WooCommerce REST API to sync product stock. Requires `wc_product_id` field added to `projects` table. |
-
-**When WooCommerce is installed**, add to `.env`:
-- `WC_SITE_URL` — base URL of the WooCommerce store
-- `WC_API_KEY` / `WC_API_SECRET` — WooCommerce REST API credentials
-- `WC_WEBHOOK_SECRET` — shared secret to validate inbound WooCommerce webhooks
-
-**Projects table will need:** `wc_product_id` column to map each kit to its WooCommerce product.
+---
 
 ## UI Design System
-
-The site uses a consistent design system across all pages. When adding new pages or UI components, match these specifications exactly.
 
 ### Fonts (Google Fonts)
 ```html
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 ```
 - **UI text / labels / buttons:** `Figtree, sans-serif`
-- **Data / numbers / order IDs / callsigns / part numbers:** `IBM Plex Mono, monospace`
+- **Data / numbers / order IDs / part numbers:** `IBM Plex Mono, monospace`
 
-### Color Tokens (copy this `:root` block into any new page)
+### Color Tokens
 ```css
 :root {
-  --bg-body: #e8f0fe;           /* page background */
-  --bg-card: #f4f8ff;           /* card / panel */
-  --bg-card-header: #eef3fd;    /* card header strip & table head */
-  --bg-card-alt-row: #f8fafe;   /* alternating table row */
-  --bg-light: #c7d9fb;          /* secondary button bg, tints */
+  --bg-body: #e8f0fe;
+  --bg-card: #f4f8ff;
+  --bg-card-header: #eef3fd;
+  --bg-card-alt-row: #f8fafe;
+  --bg-light: #c7d9fb;
   --header-gradient: linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
   --header-height: 56px;
   --nav-bg: #162038;
@@ -135,67 +250,9 @@ The site uses a consistent design system across all pages. When adding new pages
 }
 ```
 
-### Page Structure (every page)
-Every page — including new ones — must have:
-1. A gradient app header (`<header class="app-header">`) with the diamond logo block on the left and navigation/actions on the right.
-2. Content area with `padding: 20px 32px` and `max-width: 1400px` (or use `.page-body` for narrower pages like order_detail).
-
-**Header HTML pattern:**
-```html
-<header class="app-header">
-  <div class="app-logo-block">
-    <div class="app-logo-icon"><div class="app-logo-diamond"></div></div>
-    <div>
-      <div class="app-logo-callsign">KI6CR</div>
-      <div class="app-logo-subtitle">Inventory Manager</div>
-    </div>
-  </div>
-  <div class="user-info">
-    <!-- nav buttons / logout -->
-  </div>
-</header>
-```
-
-### Cards
-Cards have `padding: 0`. Use `.card-header` (with `.card-title`) for the header strip and `.card-body` for content. Tables sit directly inside `.card` inside a `.table-container` — no extra padding.
-
-### Badges
-Use translucent backgrounds, not solid colors:
-- `.badge-success`: `rgba(16,185,129,0.13)` / `#10b981`
-- `.badge-warning`: `rgba(245,158,11,0.13)` / `#f59e0b`
-- `.badge-danger`: `rgba(239,68,68,0.13)` / `#ef4444`
-- `.badge-info`: `rgba(59,130,246,0.13)` / `#3b82f6`
-
-### Files that implement the design system
-| File | Notes |
-|------|-------|
-| `index.php` | Full implementation — use this as the reference |
-| `order_detail.php` | Standalone page pattern (narrow `.page-body`) |
-| `quick_order.php` | Standalone page with card + form pattern |
-| `invoice.php` | Print-focused; fonts updated, gradient header |
-
----
-
-## What Was Removed (USPS)
-
-The USPS API integration (address validation, rate lookup, tracking, label generation) was fully removed in May 2026. The shipping weight and dimension fields (`ship_weight_oz`, `pkg_length`, `pkg_width`, `pkg_height`) on the `projects` table were kept — they remain useful for shipping calculations. The `mail_service` and `tracking_number` fields on `orders` were also kept for manual entry.
-
 ---
 
 ## WooCommerce Integration — Operational Notes
-
-### How inventory deduction works end-to-end
-1. WooCommerce fires a webhook (order.created or order.updated) to `woocommerce_webhook.php`
-2. The webhook looks up the WC product → finds the matching project in `projects.woocommerce_product_id`
-3. For variable products, it looks up the WC variation ID in `project_variation_mappings` to get the `combo_key`
-4. It calls `wc_deduct_bom_inventory()`: deducts all fixed BOM parts (variation_attribute='') plus the variable parts matching the combo
-5. Sets `orders.inventory_deducted = 1` — subsequent webhooks for the same order are skipped (idempotent)
-6. Calls `wc_sync_project()` to push recalculated stock back to WooCommerce
-
-### Order statuses that trigger deduction
-`processing`, `on-hold`, `completed` → deduct inventory  
-`cancelled`, `refunded` → restore inventory  
-All others → skipped
 
 ### Variation mappings must stay in sync with the BOM
 The `project_variation_mappings` table stores `combo_key` values like `Color:Grey` that must **exactly match** the `variation_attribute` + `variation_value` pairs in `project_parts`. If you restructure a WooCommerce product's variation attributes (rename, add, remove), the mappings table goes stale and orders will silently fail to deduct variable parts (fixed parts still deduct correctly). Fix: delete the stale rows and re-enter correct mappings via the project's Variation Mappings UI.
@@ -215,13 +272,33 @@ ssh dreamhost-sota "curl -s 'https://ki6cr.com/projects/woocommerce_webhook.php?
 If inventory doesn't deduct after an order:
 1. Check `orders` table — was a row created? Is `inventory_deducted = 1`? What is `variation_combo_key`?
 2. Check `project_variation_mappings` — does the combo_key on the order match any row? Does it match the actual `variation_attribute`/`variation_value` in `project_parts`?
-3. Check the WooCommerce webhook delivery log (WC Admin → Settings → Advanced → Webhooks → Edit → Recent Deliveries) — the response body contains a full `item_log` with per-part deduction results including `rows_affected`
+3. Check the WooCommerce webhook delivery log (WC Admin → Settings → Advanced → Webhooks → Edit → Recent Deliveries) — the response body contains a full `item_log` with per-part deduction results.
 
 ---
 
-## Pending Decisions / TODO (as of 2026-06-17)
+## WooCommerce Integration — Roadmap / TODO
 
-### WooCommerce Shipping Strategy
-- **Domestic shipping:** Chris is leaning toward free shipping for US orders. Decision needed before store goes live.
-- **International shipping:** If domestic is free, international should be charged. Need to configure WooCommerce shipping zones accordingly.
-- **Lightweight / low-margin items (e.g. CEC cable adaptor):** If cheapest available shipping method is $5–8, that destroys the margin on an inexpensive item. Need to confirm whether USPS First Class Package (typically $3–5 for items under 1 lb) can be offered as a rate in WooCommerce/Shippo for these SKUs. If not, the CEC adaptor may need to be bundled, priced higher, or offered local-pickup/free-with-another-item only.
+### Shipping Strategy
+- **Domestic:** Free shipping for US orders (decided).
+- **International:** Live Shippo carrier rates (UPS, USPS, DHL — confirmed working).
+- **Low-margin items:** If cheapest shipping is $5–8 (e.g. CEC cable adaptor), that kills margin. Confirm whether USPS First Class Package (~$3–5) is available in WooCommerce/Shippo for these SKUs.
+
+### Replacement Parts Store
+- Add a WooCommerce Variable Product per kit for replacement parts
+- Each variation = a specific BOM part
+- Contact-only for now (no cart) — price at $0 or use Request a Quote plugin
+- No inventory sync needed for replacement parts
+
+### Shippo Webhook End-to-End Test
+- Create a WooCommerce order → print a label in Shippo → confirm:
+  - Tracker order updates with tracking number and status = shipped
+  - WooCommerce order moves to Completed
+  - Customer receives tracking note
+- After confirmed: remove debug logging from `shippo_webhook.php` if any remains
+
+---
+
+## What Was Removed
+
+- **USPS API integration** — fully removed in May 2026. Shipping weight/dimension fields on `projects` were kept. `mail_service` and `tracking_number` on `orders` kept for manual entry.
+- **`order_webhook.php`** — old order intake webhook, superseded by `woocommerce_webhook.php`.

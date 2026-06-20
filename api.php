@@ -397,13 +397,51 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
         ");
         $out = [];
         foreach ($stmt->fetchAll() as $p) {
-            $out[] = [
-                'project_id'               => $p['id'],
-                'project_name'             => $p['project_name'],
-                'wc_product_id'            => $p['woocommerce_product_id'],
-                'calculated_available_qty' => wc_calculate_available_qty($db, $p['id']),
-                'project_status'           => $p['status'],
-            ];
+            $wc_product_id = (int) $p['woocommerce_product_id'];
+
+            $vstmt = $db->prepare("
+                SELECT combo_key, wc_variation_id
+                FROM project_variation_mappings
+                WHERE project_id = ? AND wc_variation_id IS NOT NULL
+            ");
+            $vstmt->execute([$p['id']]);
+            $mappings = $vstmt->fetchAll();
+
+            if (!empty($mappings)) {
+                $variations = [];
+                foreach ($mappings as $m) {
+                    // Pass combo_key as raw string — wc_calculate_variation_qty parses internally
+                    $tracker_qty = wc_calculate_variation_qty($db, $p['id'], $m['combo_key']);
+                    $wc_qty      = wc_fetch_variation_stock_live($wc_product_id, (int) $m['wc_variation_id']);
+                    $variations[] = [
+                        'combo'        => $m['combo_key'],
+                        'variation_id' => (int) $m['wc_variation_id'],
+                        'tracker_qty'  => $tracker_qty,
+                        'wc_qty'       => $wc_qty,
+                        'match'        => $wc_qty !== null && $wc_qty === $tracker_qty,
+                    ];
+                }
+                $out[] = [
+                    'project_id'     => $p['id'],
+                    'project_name'   => $p['project_name'],
+                    'wc_product_id'  => $wc_product_id,
+                    'variable'       => true,
+                    'variations'     => $variations,
+                    'project_status' => $p['status'],
+                ];
+            } else {
+                $tracker_qty = wc_calculate_available_qty($db, $p['id']);
+                $wc_qty      = wc_fetch_product_stock($wc_product_id);
+                $out[] = [
+                    'project_id'               => $p['id'],
+                    'project_name'             => $p['project_name'],
+                    'wc_product_id'            => $wc_product_id,
+                    'calculated_available_qty' => $tracker_qty,
+                    'wc_stock_qty'             => $wc_qty,
+                    'match'                    => $wc_qty !== null && $wc_qty === $tracker_qty,
+                    'project_status'           => $p['status'],
+                ];
+            }
         }
         jsonResponse($out);
     }
@@ -423,6 +461,11 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
 if ($action === 'get_parts') {
     $parts = $db->query("SELECT * FROM parts ORDER BY part_name ASC")->fetchAll();
     jsonResponse($parts);
+}
+
+if ($action === 'get_unassigned_part_ids') {
+    $ids = $db->query("SELECT id FROM parts WHERE id NOT IN (SELECT DISTINCT part_id FROM project_parts)")->fetchAll(PDO::FETCH_COLUMN);
+    jsonResponse(array_map('intval', $ids));
 }
 
 if ($action === 'get_part') {

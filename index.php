@@ -1039,6 +1039,7 @@
                         <div class="parts-header-controls">
                             <select id="partsProjectFilter" class="form-input" onchange="onPartsProjectFilterChange()">
                                 <option value="">All Projects</option>
+                                <option value="__unassigned__">Unassigned to a project</option>
                             </select>
                             <input type="text" id="partsSearchInput" class="form-input" placeholder="Search parts..." oninput="filterPartsTable(this.value)">
                             <button class="btn btn-primary" onclick="openPartModal()">+ New Part</button>
@@ -1698,7 +1699,8 @@
 
                 // Populate the project dropdown (fetch projects if not yet loaded)
                 const sel = document.getElementById('partsProjectFilter');
-                if (sel && sel.options.length <= 1) {
+                if (sel && !sel.dataset.populated) {
+                    sel.dataset.populated = '1';
                     const pResp = await fetch('api.php?action=get_projects');
                     const pList = await pResp.json();
                     pList.forEach(p => {
@@ -1720,6 +1722,10 @@
             const projectId = document.getElementById('partsProjectFilter').value;
             if (!projectId) {
                 partsProjectPartIds = null;
+            } else if (projectId === '__unassigned__') {
+                const resp = await fetch('api.php?action=get_unassigned_part_ids');
+                const ids = await resp.json();
+                partsProjectPartIds = new Set(ids);
             } else {
                 const resp = await fetch(`api.php?action=get_project&id=${projectId}`);
                 const project = await resp.json();
