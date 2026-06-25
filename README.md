@@ -1,4 +1,4 @@
-# KI6CR Inventory Manager
+# KI6CR Kits Project & Inventory Manager
 
 A single-operator ham radio kit business management tool for tracking parts inventory, kit projects (BOMs), customer orders, and business P&L. Built for KI6CR Labs — the kit operation behind [ki6cr-labs.com](https://ki6cr-labs.com).
 
