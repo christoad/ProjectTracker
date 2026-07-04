@@ -1002,6 +1002,7 @@
                         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
                             <button class="btn btn-small" onclick="wcCheckStatus()" style="background:var(--info);color:white;border-color:var(--info);">Check WC Status</button>
                             <button class="btn btn-small" onclick="wcSyncAll()" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync All to WooCommerce</button>
+                            <button class="btn btn-small" onclick="wcViewLog()" style="background:var(--bg-light);border-color:var(--border-card);">Sync Log</button>
                             <button class="btn btn-primary" onclick="openProjectModal()">+ New Project</button>
                         </div>
                     </div>
@@ -1595,7 +1596,7 @@
                             <button class="btn btn-small" onclick="viewProject(${p.id})">View</button>
                             <button class="btn btn-small" onclick="editProject(${p.id})">Edit</button>
                             <button class="btn btn-small" onclick="copyProject(${p.id})" style="background:var(--bg-light);border-color:var(--border-card);">Copy</button>
-                            ${p.woocommerce_product_id ? `<button class="btn btn-small" onclick="wcSyncProject(${p.id})" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync WC</button>` : ''}
+                            ${p.woocommerce_product_id ? `<button class="btn btn-small" onclick="wcSyncProject(${p.id}, this)" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync WC</button>` : ''}
                             <button class="btn btn-small btn-danger" onclick="deleteProject(${p.id})">Trash</button>
                         </td>
                     </tr>
@@ -1715,36 +1716,124 @@
             }
         }
 
-        async function wcSyncProject(projectId) {
-            wcShowResult('<em>Syncing to WooCommerce…</em>');
+        async function wcSyncProject(projectId, btn) {
+            const origText  = btn ? btn.textContent : '';
+            const origStyle = btn ? btn.getAttribute('style') : '';
+            function resetBtn(text, style) {
+                if (!btn) return;
+                btn.disabled = false;
+                btn.textContent = text;
+                btn.setAttribute('style', style);
+            }
+            if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
             try {
                 const r = await fetch(`${WC_WEBHOOK}?action=wc_sync&project_id=${projectId}`);
                 const data = await r.json();
+
+                if (!btn) return;
+                btn.disabled = false;
+
                 if (data.skipped) {
-                    wcShowResult(`<span style="color:var(--text-secondary)">${data.reason}</span>`);
+                    btn.textContent = '— Skipped';
+                    setTimeout(() => resetBtn(origText, origStyle), 3000);
                     return;
                 }
-                if (data.variable) {
-                    const lines = (data.variations || []).map(v => {
-                        if (v.skipped) return `<li style="color:var(--text-secondary)">${v.combo}: ${v.reason}</li>`;
-                        if (!v.success) return `<li style="color:var(--danger)">${v.combo}: ✗ ${v.error}</li>`;
-                        const wcConfirmed = v.new_stock !== null && v.new_stock !== undefined
-                            ? ` <span style="color:var(--text-secondary);font-size:0.85em;">(WC: qty ${v.new_stock}, ${v.stock_status || '?'})</span>` : '';
-                        return `<li style="color:var(--success)">${v.combo}: ✓ pushed ${v.calculated_qty}${wcConfirmed}</li>`;
-                    }).join('');
-                    wcShowResult(`<strong>${data.project_name}</strong> (variable product)<ul style="margin:6px 0 0 16px">${lines}</ul>`);
-                    return;
-                }
-                if (data.success) {
-                    const wcConfirmed = data.new_stock !== null && data.new_stock !== undefined
-                        ? ` <span style="color:var(--text-secondary);font-size:0.85em;">(WC confirmed: ${data.new_stock})</span>` : '';
-                    wcShowResult(`<span style="color:var(--success)">✓ <strong>${data.project_name}</strong> synced — pushed ${data.calculated_qty}${wcConfirmed}</span>`);
+
+                const isError = data.variable
+                    ? (data.variations || []).some(v => v.error)
+                    : !data.success;
+
+                if (isError) {
+                    btn.textContent = '✗ Failed — see log';
+                    btn.setAttribute('style', 'background:var(--danger);color:white;border-color:var(--danger);');
+                    setTimeout(() => resetBtn(origText, origStyle), 5000);
+                } else if (data.variable) {
+                    btn.textContent = '✓ Synced';
+                    btn.setAttribute('style', 'background:var(--success);color:white;border-color:var(--success);');
+                    setTimeout(() => resetBtn(origText, origStyle), 4000);
                 } else {
-                    wcShowResult(`<span style="color:var(--danger)">✗ <strong>${data.project_name || 'Project'}</strong> sync failed: ${data.error || 'Unknown error'}</span>`);
+                    btn.textContent = `✓ Pushed ${data.calculated_qty}`;
+                    btn.setAttribute('style', 'background:var(--success);color:white;border-color:var(--success);');
+                    setTimeout(() => resetBtn(origText, origStyle), 4000);
                 }
             } catch(e) {
-                wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
+                if (btn) {
+                    btn.textContent = '✗ Error';
+                    btn.setAttribute('style', 'background:var(--danger);color:white;border-color:var(--danger);');
+                    setTimeout(() => resetBtn(origText, origStyle), 4000);
+                }
             }
+        }
+
+        async function wcViewLog() {
+            const modal = createModal('WooCommerce Sync Log', '<div style="text-align:center;padding:2rem;color:var(--text-dim);">Loading…</div>', null, true);
+            try {
+                const r = await fetch('api.php?action=wc_sync_log');
+                const data = await r.json();
+                const entries = data.entries || [];
+                if (!entries.length) {
+                    modal.querySelector('.modal-content').innerHTML += '';
+                    modal.querySelector('div[style*="Loading"]').textContent = 'No sync log entries yet.';
+                    return;
+                }
+                const rows = entries.map(e => {
+                    if (!e) return '';
+                    const isError = e.level === 'error';
+                    const ctx = e.context || {};
+                    let detail = '';
+                    if (ctx.variations) {
+                        detail = ctx.variations.map(v => {
+                            const ok = v.success;
+                            const color = ok ? 'var(--success)' : 'var(--danger)';
+                            const info = ok ? `qty ${v.qty}` : (v.error || '?');
+                            const extra = !ok && (v.http_code || v.wc_code || v.raw_body)
+                                ? ` <span style="color:var(--text-dim);font-size:0.8em;">[HTTP ${v.http_code || '?'}${v.wc_code ? ' · ' + v.wc_code : ''}]</span>` : '';
+                            const raw = !ok && v.raw_body
+                                ? `<pre style="margin:2px 0 0;font-size:0.72rem;background:#f8f8f8;padding:4px;border-radius:2px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:80px;">${v.raw_body.substring(0, 400)}</pre>` : '';
+                            return `<div style="color:${color};margin-bottom:2px;">${escHtml(v.combo || '')}: ${escHtml(info)}${extra}${raw}</div>`;
+                        }).join('');
+                    } else {
+                        const ok = ctx.success;
+                        const info = ok ? `qty ${ctx.calculated_qty}` : (ctx.error || '?');
+                        const extra = !ok && (ctx.http_code || ctx.wc_code)
+                            ? ` <span style="color:var(--text-dim);font-size:0.8em;">[HTTP ${ctx.http_code || '?'}${ctx.wc_code ? ' · ' + ctx.wc_code : ''}]</span>` : '';
+                        const raw = !ok && ctx.raw_body
+                            ? `<pre style="margin:2px 0 0;font-size:0.72rem;background:#f8f8f8;padding:4px;border-radius:2px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:80px;">${ctx.raw_body.substring(0, 400)}</pre>` : '';
+                        detail = `<span style="color:${ok ? 'var(--success)' : 'var(--danger)'};">${escHtml(info)}${extra}</span>${raw}`;
+                    }
+                    return `<tr style="vertical-align:top;border-bottom:1px solid var(--border-card);">
+                        <td style="padding:6px 8px;white-space:nowrap;color:var(--text-dim);font-size:0.8rem;font-family:var(--font-mono);">${escHtml(e.time)}</td>
+                        <td style="padding:6px 8px;font-weight:600;${isError ? 'color:var(--danger)' : ''}">${escHtml(e.message)}</td>
+                        <td style="padding:6px 8px;font-size:0.85rem;">${detail}</td>
+                    </tr>`;
+                }).join('');
+                const body = modal.querySelector('.modal-content');
+                body.innerHTML = `
+                    <div style="display:flex;justify-content:flex-end;padding:8px 0 4px;gap:8px;">
+                        <button class="btn btn-small btn-danger" onclick="wcClearLog(this)">Clear Log</button>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                            <thead><tr style="text-align:left;border-bottom:2px solid var(--border-table-head);">
+                                <th style="padding:4px 8px;">Time</th>
+                                <th style="padding:4px 8px;">Event</th>
+                                <th style="padding:4px 8px;">Detail</th>
+                            </tr></thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                    <div style="padding:8px 0 4px;">
+                        <button class="btn" onclick="this.closest('.modal').remove()">Close</button>
+                    </div>`;
+            } catch(e) {
+                modal.querySelector('.modal-content').innerHTML = `<p style="color:var(--danger)">Failed to load log: ${e.message}</p><button class="btn" onclick="this.closest('.modal').remove()">Close</button>`;
+            }
+        }
+
+        async function wcClearLog(btn) {
+            if (!confirm('Clear the entire sync log?')) return;
+            await fetch('api.php?action=wc_sync_log_clear');
+            btn.closest('.modal').remove();
         }
 
         // Parts
@@ -3365,6 +3454,12 @@
                     modal.remove();
                     loadParts();
                     loadDashboard();
+                    viewPart(partId);
+                    if (window.currentProjectData) {
+                        fetch(`api.php?action=get_project&id=${window.currentProjectData.id}`)
+                            .then(r => r.json())
+                            .then(project => { window.currentProjectData = project; renderBOMTable(); });
+                    }
                 } catch (error) {
                     alert('Error checking in inventory');
                 }

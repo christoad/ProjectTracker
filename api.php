@@ -487,6 +487,19 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
         $results = wc_sync_all_projects($db);
         jsonResponse(['synced' => count($results), 'results' => $results]);
     }
+
+    if ($action === 'wc_sync_log') {
+        $log_file = __DIR__ . '/wc_sync.log';
+        if (!file_exists($log_file)) { jsonResponse(['entries' => []]); }
+        $lines   = array_filter(explode("\n", file_get_contents($log_file)));
+        $entries = array_map(fn($l) => json_decode($l, true), array_slice(array_values($lines), -100));
+        jsonResponse(['entries' => array_reverse($entries)]);
+    }
+
+    if ($action === 'wc_sync_log_clear') {
+        file_put_contents(__DIR__ . '/wc_sync.log', '');
+        jsonResponse(['success' => true]);
+    }
 }
 
 // Parts

@@ -223,9 +223,25 @@ function wc_do_put(string $url, string $payload, array $cfg): array {
         return ['success' => true, 'product_id' => $result['id'], 'new_stock' => $result['stock_quantity'] ?? null, 'stock_status' => $result['stock_status'] ?? null];
     }
     if ($http_code === 0) {
-        return ['error' => 'No response from WooCommerce' . ($curl_err ? ": $curl_err" : ' (timed out)')];
+        return ['error' => 'No response from WooCommerce' . ($curl_err ? ": $curl_err" : ' (timed out)'), 'http_code' => 0];
     }
-    return ['error' => $result['message'] ?? "HTTP $http_code", 'raw' => $result];
+    return [
+        'error'     => $result['message'] ?? "HTTP $http_code",
+        'http_code' => $http_code,
+        'wc_code'   => $result['code'] ?? null,
+        'wc_data'   => $result['data'] ?? null,
+        'raw_body'  => $response,
+    ];
+}
+
+function wc_log(string $level, string $message, array $context = []): void {
+    $entry = json_encode([
+        'time'    => date('Y-m-d H:i:s'),
+        'level'   => $level,
+        'message' => $message,
+        'context' => $context,
+    ]) . "\n";
+    file_put_contents(__DIR__ . '/wc_sync.log', $entry, FILE_APPEND | LOCK_EX);
 }
 
 // ── Sync ──────────────────────────────────────────────────────────────────────
@@ -269,13 +285,30 @@ function wc_sync_project($db, int $project_id): array {
         foreach ($mappings as $m) {
             $qty    = wc_calculate_variation_qty($db, $project_id, $m['combo_key']);
             $result = wc_push_variation_stock($wc_product_id, (int) $m['wc_variation_id'], $qty);
-            $result['combo_key']       = $m['combo_key'];
-            $result['calculated_qty']  = $qty;
-            $variation_results[]       = $result;
+            $result['combo_key']      = $m['combo_key'];
+            $result['calculated_qty'] = $qty;
+            $variation_results[]      = $result;
         }
+
+        $any_error = array_filter($variation_results, fn($v) => !empty($v['error']));
+        $log_level = $any_error ? 'error' : 'info';
+        wc_log($log_level, $project['project_name'] . ' (variable) sync', [
+            'project_id'    => $project_id,
+            'wc_product_id' => $wc_product_id,
+            'variations'    => array_map(fn($v) => [
+                'combo'     => $v['combo_key'],
+                'qty'       => $v['calculated_qty'],
+                'success'   => $v['success'] ?? false,
+                'error'     => $v['error'] ?? null,
+                'http_code' => $v['http_code'] ?? null,
+                'wc_code'   => $v['wc_code'] ?? null,
+                'raw_body'  => $v['raw_body'] ?? null,
+            ], $variation_results),
+        ]);
 
         return [
             'project_name' => $project['project_name'],
+            'variable'     => true,
             'type'         => 'variable',
             'variations'   => $variation_results,
         ];
@@ -287,6 +320,18 @@ function wc_sync_project($db, int $project_id): array {
     $result['project_name']   = $project['project_name'];
     $result['type']           = 'simple';
     $result['calculated_qty'] = $qty;
+
+    wc_log(isset($result['error']) ? 'error' : 'info', $project['project_name'] . ' (simple) sync', [
+        'project_id'    => $project_id,
+        'wc_product_id' => $wc_product_id,
+        'calculated_qty' => $qty,
+        'success'       => $result['success'] ?? false,
+        'error'         => $result['error'] ?? null,
+        'http_code'     => $result['http_code'] ?? null,
+        'wc_code'       => $result['wc_code'] ?? null,
+        'raw_body'      => $result['raw_body'] ?? null,
+    ]);
+
     return $result;
 }
 
