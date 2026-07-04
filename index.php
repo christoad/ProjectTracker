@@ -944,6 +944,7 @@
             <button class="nav-tab" onclick="showSection('business')">📊 Business</button>
             <button class="nav-tab" onclick="showSection('tasks')">Tasks</button>
             <button class="nav-tab" onclick="showSection('settings')">Settings</button>
+            <button class="nav-tab" onclick="showSection('beta-feedback')">Beta Feedback</button>
         </nav>
 
         <main class="main-content">
@@ -1304,6 +1305,61 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Beta Feedback Section -->
+            <section id="beta-feedback" class="section">
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                        <h2 class="card-title">KH1 Beta Builder Feedback</h2>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <a href="kh1_qr.php" target="_blank" class="btn btn-secondary" style="text-decoration:none;font-size:0.8rem;">QR Code</a>
+                            <a href="kh1_feedback.php" target="_blank" class="btn btn-secondary" style="text-decoration:none;font-size:0.8rem;">View Form</a>
+                        </div>
+                    </div>
+                    <div style="padding:0 1rem 0.5rem;">
+                        <div id="betaSummaryCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px;"></div>
+                        <div id="betaPackagingAlert" style="display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;font-size:0.84rem;color:#991b1b;margin-bottom:10px;"></div>
+                        <div id="betaStepIssues" style="display:none;margin-bottom:10px;"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Builder Responses</h2>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table class="data-table" id="betaBuilderTable">
+                            <thead>
+                                <tr>
+                                    <th>Callsign</th>
+                                    <th>Steps Saved</th>
+                                    <th>Issues Flagged</th>
+                                    <th>Last Active</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="betaBuilderBody">
+                                <tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-dim);">Loading…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Builder detail modal -->
+                <div id="betaDetailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1100;align-items:center;justify-content:center;">
+                    <div style="background:#fff;border-radius:10px;max-width:640px;width:94%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                        <div style="padding:16px 20px;border-bottom:1px solid var(--border-card);display:flex;align-items:center;justify-content:space-between;">
+                            <div>
+                                <div style="font-family:var(--font-mono);font-size:0.7rem;letter-spacing:0.12em;color:var(--text-dim);text-transform:uppercase;">Beta Builder</div>
+                                <div id="betaDetailCallsign" style="font-family:var(--font-mono);font-size:1.1rem;font-weight:600;color:var(--text-primary);"></div>
+                            </div>
+                            <button onclick="closeBetaDetail()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-dim);padding:4px 8px;">×</button>
+                        </div>
+                        <div id="betaDetailBody" style="overflow-y:auto;padding:16px 20px;flex:1;"></div>
+                    </div>
+                </div>
+            </section>
+
         </main>
     </div>
 
@@ -1320,6 +1376,8 @@
         // BOM view state (project modal)
         let bomSortState = { column: 'part_number', direction: 'asc' };
         let bomSearchQuery = '';
+        let bomDragMode = false;
+        let bomDragSrcIdx = null;
 
         // Category → part number prefix map
         // 42 is reserved for 3D printed parts per KI6CR convention
@@ -1413,6 +1471,7 @@
                 setTimeout(() => loadBusinessMetrics(), 100);
             }
             if (sectionId === 'tasks') loadTasksSection();
+            if (sectionId === 'beta-feedback') loadBetaFeedback();
         }
 
         // Dashboard
@@ -1535,6 +1594,7 @@
                         <td>
                             <button class="btn btn-small" onclick="viewProject(${p.id})">View</button>
                             <button class="btn btn-small" onclick="editProject(${p.id})">Edit</button>
+                            <button class="btn btn-small" onclick="copyProject(${p.id})" style="background:var(--bg-light);border-color:var(--border-card);">Copy</button>
                             ${p.woocommerce_product_id ? `<button class="btn btn-small" onclick="wcSyncProject(${p.id})" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync WC</button>` : ''}
                             <button class="btn btn-small btn-danger" onclick="deleteProject(${p.id})">Trash</button>
                         </td>
@@ -1897,6 +1957,11 @@
                             <small style="color: var(--text-secondary); font-size: 0.875rem;">Used for shipping calculations</small>
                         </div>
                         <div class="form-group">
+                            <label class="form-label">WooCommerce Product ID</label>
+                            <input type="number" id="projectWooId" class="form-input" value="${project.woocommerce_product_id || ''}" placeholder="Leave blank if not linked to WooCommerce" min="1" style="font-family:var(--font-mono);">
+                            <small style="color:var(--text-secondary);font-size:0.875rem;">The numeric product ID from your WooCommerce store — needed for inventory sync.</small>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label">Project Image</label>
                             <input type="file" id="projectImage" class="form-input" accept="image/*">
                             ${project.image_path ? `<div style="margin-top: 0.5rem;"><img src="${project.image_path}" style="max-width: 200px; border: 1px solid var(--border-color);"></div>` : ''}
@@ -1922,7 +1987,8 @@
                 formData.append('pkg_length',     document.getElementById('projectPkgLength').value);
                 formData.append('pkg_width',       document.getElementById('projectPkgWidth').value);
                 formData.append('pkg_height',      document.getElementById('projectPkgHeight').value);
-                
+                formData.append('woocommerce_product_id', document.getElementById('projectWooId').value);
+
                 const imageFile = document.getElementById('projectImage').files[0];
                 if (imageFile) {
                     formData.append('project_image', imageFile);
@@ -1948,6 +2014,7 @@
                 // Reset BOM state each time a project is opened
                 bomSortState = { column: 'part_number', direction: 'asc' };
                 bomSearchQuery = '';
+                bomDragMode = false;
 
                 const imageHtml = project.image_path
                     ? `<img src="${project.image_path}" style="max-width: 100%; border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 1rem;">`
@@ -1990,7 +2057,8 @@
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                             <div>
                                 <strong>Status:</strong> <span class="badge badge-${getStatusColor(project.status)}">${project.status}</span><br>
-                                <strong>Description:</strong> ${project.description || 'N/A'}
+                                <strong>Description:</strong> ${project.description || 'N/A'}<br>
+                                ${project.woocommerce_product_id ? `<strong>WooCommerce ID:</strong> <span style="font-family:var(--font-mono);">${project.woocommerce_product_id}</span>` : '<strong>WooCommerce:</strong> <span style="color:var(--text-dim);">Not linked</span>'}
                             </div>
                             <div>
                                 <strong>Retail Price:</strong> $${parseFloat(project.retail_price || 0).toFixed(2)}<br>
@@ -2025,6 +2093,7 @@
                             <h4>Bill of Materials</h4>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
                                 <input type="text" id="bomSearchInput" class="form-input" placeholder="Search BOM..." style="width: 200px;" oninput="bomSearchQuery = this.value; renderBOMTable();">
+                                <button class="btn btn-small" id="bomReorderBtn" onclick="toggleBOMDragMode()" style="background: var(--bg-light); border-color: var(--border-card);">&#8801; Reorder</button>
                                 <button class="btn btn-small" onclick="exportBOM()" style="background: var(--success); color: white; border-color: var(--success);">&#128229; Export BOM</button>
                                 <button class="btn btn-primary btn-small" onclick="addFixedPartToProject(${project.id})">+ Fixed Part</button>
                                 <button class="btn btn-small" style="background: var(--info); color: white; border-color: var(--info);" onclick="addVariablePartToProject(${project.id})">+ Variable Part</button>
@@ -2091,27 +2160,40 @@
                 return;
             }
 
+            // In drag mode: show all parts in saved order, no search/sort
             let filtered = project.parts;
-            if (bomSearchQuery && bomSearchQuery.trim()) {
-                const q = bomSearchQuery.trim().toLowerCase();
-                filtered = project.parts.filter(p =>
-                    (p.part_number || '').toLowerCase().includes(q) ||
-                    (p.part_name || '').toLowerCase().includes(q) ||
-                    (p.category || '').toLowerCase().includes(q)
-                );
+            if (!bomDragMode) {
+                if (bomSearchQuery && bomSearchQuery.trim()) {
+                    const q = bomSearchQuery.trim().toLowerCase();
+                    filtered = project.parts.filter(p =>
+                        (p.part_number || '').toLowerCase().includes(q) ||
+                        (p.part_name || '').toLowerCase().includes(q) ||
+                        (p.category || '').toLowerCase().includes(q)
+                    );
+                }
+                filtered = sortData(filtered, bomSortState.column, bomSortState.direction);
             }
-            filtered = sortData(filtered, bomSortState.column, bomSortState.direction);
 
-            const arrow = (col) => bomSortState.column === col ? (bomSortState.direction === 'asc' ? ' &#9650;' : ' &#9660;') : '';
-            const thStyle = 'cursor: pointer; user-select: none;';
+            const arrow = (col) => (!bomDragMode && bomSortState.column === col) ? (bomSortState.direction === 'asc' ? ' &#9650;' : ' &#9660;') : '';
+            const thStyle = bomDragMode ? '' : 'cursor: pointer; user-select: none;';
+            const thClick = (col) => bomDragMode ? '' : `onclick="sortBOM('${col}')" title="Sort"`;
 
-            const rows = filtered.map(p => {
+            const rows = filtered.map((p, i) => {
                 const isVariable = p.variation_attribute && p.variation_attribute !== '';
                 const variationLabel = isVariable
                     ? `<span style="font-size:0.78em;color:var(--accent-secondary);font-weight:600;background:rgba(26,86,219,0.09);padding:2px 7px;border-radius:3px;">${p.variation_attribute}: ${p.variation_value}</span>`
                     : `<span style="font-size:0.78em;color:var(--text-dim);">Fixed</span>`;
+
+                const dragAttrs = bomDragMode
+                    ? `draggable="true" ondragstart="bomDragSrcIdx=${i}" ondragover="event.preventDefault();this.style.outline='2px solid var(--accent-primary)'" ondragleave="this.style.outline=''" ondrop="event.preventDefault();this.style.outline='';bomDropRow(${i})"`
+                    : '';
+                const dragHandle = bomDragMode
+                    ? `<td style="cursor:grab;text-align:center;color:var(--text-dim);font-size:1.1em;padding:0 6px;">&#8942;&#8942;</td>`
+                    : '';
+
                 return `
-                <tr>
+                <tr ${dragAttrs}>
+                    ${dragHandle}
                     <td>${p.part_number}</td>
                     <td>${p.part_name}</td>
                     <td>${p.category || '-'}</td>
@@ -2134,30 +2216,34 @@
                 </tr>`;
             }).join('');
 
-            const totalRow = bomSearchQuery.trim()
+            const totalRow = (bomDragMode || bomSearchQuery.trim())
                 ? ''
                 : `<tr style="font-weight: bold; background: var(--bg-light);">
                        <td colspan="6" style="text-align: right;">Fixed Parts BOM Cost:</td>
                        <td colspan="3">$${parseFloat(project.total_bom_cost || 0).toFixed(2)}</td>
                    </tr>`;
 
+            const colSpanEmpty = bomDragMode ? 10 : 9;
+            const dragHandleTh = bomDragMode ? '<th style="width:28px;"></th>' : '';
+
             container.innerHTML = `
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th style="${thStyle}" onclick="sortBOM('part_number')" title="Sort">Part Number${arrow('part_number')}</th>
-                            <th style="${thStyle}" onclick="sortBOM('part_name')" title="Sort">Part Name${arrow('part_name')}</th>
-                            <th style="${thStyle}" onclick="sortBOM('category')" title="Sort">Category${arrow('category')}</th>
+                            ${dragHandleTh}
+                            <th style="${thStyle}" ${thClick('part_number')}>Part Number${arrow('part_number')}</th>
+                            <th style="${thStyle}" ${thClick('part_name')}>Part Name${arrow('part_name')}</th>
+                            <th style="${thStyle}" ${thClick('category')}>Category${arrow('category')}</th>
                             <th>Variation</th>
-                            <th style="${thStyle}" onclick="sortBOM('quantity_required')" title="Sort">Qty Req'd${arrow('quantity_required')}</th>
-                            <th style="${thStyle}" onclick="sortBOM('unit_cost')" title="Sort">Unit Cost${arrow('unit_cost')}</th>
-                            <th style="${thStyle}" onclick="sortBOM('line_total')" title="Sort">Line Total${arrow('line_total')}</th>
-                            <th style="${thStyle}" onclick="sortBOM('current_stock')" title="Sort">In Stock${arrow('current_stock')}</th>
+                            <th style="${thStyle}" ${thClick('quantity_required')}>Qty Req'd${arrow('quantity_required')}</th>
+                            <th style="${thStyle}" ${thClick('unit_cost')}>Unit Cost${arrow('unit_cost')}</th>
+                            <th style="${thStyle}" ${thClick('line_total')}>Line Total${arrow('line_total')}</th>
+                            <th style="${thStyle}" ${thClick('current_stock')}>In Stock${arrow('current_stock')}</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${filtered.length > 0 ? rows : '<tr><td colspan="9" style="color: var(--text-dim); text-align: center;">No parts match your search.</td></tr>'}
+                        ${filtered.length > 0 ? rows : `<tr><td colspan="${colSpanEmpty}" style="color: var(--text-dim); text-align: center;">No parts match your search.</td></tr>`}
                         ${totalRow}
                     </tbody>
                 </table>
@@ -2165,6 +2251,7 @@
         }
 
         function sortBOM(column) {
+            if (bomDragMode) return;
             if (bomSortState.column === column) {
                 bomSortState.direction = bomSortState.direction === 'asc' ? 'desc' : 'asc';
             } else {
@@ -2172,6 +2259,47 @@
                 bomSortState.direction = 'asc';
             }
             renderBOMTable();
+        }
+
+        function toggleBOMDragMode() {
+            bomDragMode = !bomDragMode;
+            if (bomDragMode) {
+                // Clear search so all parts are visible for reordering
+                bomSearchQuery = '';
+                const searchInput = document.getElementById('bomSearchInput');
+                if (searchInput) searchInput.value = '';
+            }
+            const btn = document.getElementById('bomReorderBtn');
+            if (btn) {
+                if (bomDragMode) {
+                    btn.textContent = '✓ Done Reordering';
+                    btn.style.background = 'var(--warning)';
+                    btn.style.color = 'white';
+                    btn.style.borderColor = 'var(--warning)';
+                } else {
+                    btn.textContent = '≡ Reorder';
+                    btn.style.background = 'var(--bg-light)';
+                    btn.style.color = '';
+                    btn.style.borderColor = 'var(--border-card)';
+                }
+            }
+            renderBOMTable();
+        }
+
+        function bomDropRow(targetIdx) {
+            if (bomDragSrcIdx === null || bomDragSrcIdx === targetIdx) { bomDragSrcIdx = null; return; }
+            const parts = window.currentProjectData.parts;
+            const dragged = parts.splice(bomDragSrcIdx, 1)[0];
+            parts.splice(targetIdx, 0, dragged);
+            bomDragSrcIdx = null;
+            renderBOMTable();
+            // Persist the new order
+            const items = parts.map((p, i) => ({ id: p.id, sort_order: i + 1 }));
+            fetch('api.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'action=reorder_bom&items=' + encodeURIComponent(JSON.stringify(items))
+            });
         }
 
         function exportBOM() {
@@ -2576,6 +2704,23 @@
 
         function editProject(id) {
             openProjectModal(id);
+        }
+
+        async function copyProject(id) {
+            const proj = projects.find(p => p.id == id);
+            const name = proj ? proj.project_name : 'this project';
+            if (!confirm(`Duplicate "${name}"?\n\nA copy will be created with the same BOM. WooCommerce ID, orders, and expenses are not copied.`)) return;
+            const formData = new FormData();
+            formData.append('action', 'copy_project');
+            formData.append('id', id);
+            try {
+                const r = await fetch('api.php', { method: 'POST', body: formData });
+                const data = await r.json();
+                if (!data.success) { alert('Error copying project'); return; }
+                loadProjects();
+            } catch (error) {
+                alert('Error copying project');
+            }
         }
 
         async function deleteProject(id) {
@@ -3102,9 +3247,10 @@
 
         function checkinInventory(partId) {
             const part = parts.find(p => p.id === partId);
-            
+            const checkinTitle = part ? `Check-in Inventory: ${part.part_name}` : 'Check-in Inventory';
+
             const modal = createModal(
-                `Check-in Inventory: ${part.part_name}`,
+                checkinTitle,
                 `
                     <form id="checkinForm">
                         <div class="form-group">
@@ -4105,6 +4251,149 @@
 
         function escHtml(s) {
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        // ── Beta Feedback Admin ───────────────────────────────────────────────
+
+        const KH1_STEPS = {
+            packaging:'Packaging Check', step01:'01 Unpack & Inventory', step02:'02 Magnet Wire Prep',
+            step03:'03 Threading Paddles', step04:'04 The Wire Loop', step05:'05 Contact Set Screws',
+            step06:'06 Continuity Check', step07:'07 Secure Bearings', step08:'08 Glue Cure (1st)',
+            step09:'09 Center Lug', step10:'10 Opposing Magnets', step11:'11 Glue Cure (2nd)',
+            step12:'12 Stress-Relief Loop', step13:'13 Install Set Screws', step14:'14 Mechanical Stack',
+            step15:'15 3.5mm Jack & PCB', step16:'16 Wiring & Soldering', step17:'17 Calibration',
+            general:'General Feedback'
+        };
+        const TOTAL_STEPS = 19;
+        const RATING_LABEL = ['','👍 All Good','💬 Had Questions','⚠️ Had Trouble'];
+        const RATING_COLOR = ['','#10b981','#f59e0b','#ef4444'];
+
+        async function loadBetaFeedback() {
+            const resp = await fetch('api.php?action=kh1_beta_list');
+            const data = await resp.json();
+
+            // Summary cards
+            const builders = data.builders || [];
+            const totalBuilders = builders.length;
+            const totalIssues   = builders.reduce((s,b) => s + parseInt(b.trouble_count||0), 0);
+            const avgCompletion = totalBuilders
+                ? Math.round(builders.reduce((s,b) => s + parseInt(b.steps_saved||0), 0) / totalBuilders / TOTAL_STEPS * 100)
+                : 0;
+
+            document.getElementById('betaSummaryCards').innerHTML = `
+                <div class="stat-card"><div class="stat-value">${totalBuilders}</div><div class="stat-label">Builders</div></div>
+                <div class="stat-card"><div class="stat-value">${avgCompletion}%</div><div class="stat-label">Avg. Completion</div></div>
+                <div class="stat-card stat-low"><div class="stat-value">${totalIssues}</div><div class="stat-label">Steps w/ Trouble</div></div>
+            `;
+
+            // Packaging alert
+            const pkg = data.packaging || {};
+            const pkgAlerts = [];
+            if (parseInt(pkg.damaged_pkg||0) > 0)    pkgAlerts.push(pkg.damaged_pkg + ' damaged package(s)');
+            if (parseInt(pkg.missing_tools||0) > 0)   pkgAlerts.push(pkg.missing_tools + ' missing tools report(s)');
+            if (parseInt(pkg.damaged_parts||0) > 0)   pkgAlerts.push(pkg.damaged_parts + ' damaged part(s)');
+            if (pkgAlerts.length) {
+                document.getElementById('betaPackagingAlert').style.display = 'block';
+                document.getElementById('betaPackagingAlert').innerHTML = '⚠️ Packaging issues reported: ' + pkgAlerts.join(' · ');
+            }
+
+            // Step issues summary
+            const stepIssues = (data.step_issues || []).filter(s => parseInt(s.trouble_builders) > 0);
+            if (stepIssues.length) {
+                document.getElementById('betaStepIssues').style.display = 'block';
+                document.getElementById('betaStepIssues').innerHTML = `
+                    <div style="font-size:0.78rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px;">Steps with reported trouble</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                        ${stepIssues.map(s => `
+                            <span style="background:#fef2f2;border:1px solid #fca5a5;border-radius:4px;padding:3px 10px;font-size:0.8rem;color:#991b1b;">
+                                ${escHtml(KH1_STEPS[s.step_key]||s.step_key)} (${s.trouble_builders})
+                            </span>
+                        `).join('')}
+                    </div>`;
+            }
+
+            // Builder table
+            if (!builders.length) {
+                document.getElementById('betaBuilderBody').innerHTML =
+                    '<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-dim);">No beta builders have submitted feedback yet.</td></tr>';
+                return;
+            }
+            document.getElementById('betaBuilderBody').innerHTML = builders.map(b => {
+                const issues = parseInt(b.trouble_count||0);
+                const saved  = parseInt(b.steps_saved||0);
+                const lastAgo = b.last_active ? timeAgo(b.last_active) : '—';
+                return `<tr>
+                    <td style="font-family:var(--font-mono);font-weight:600;">${escHtml(b.callsign)}</td>
+                    <td>${saved} / ${TOTAL_STEPS}</td>
+                    <td>${issues > 0
+                        ? `<span style="color:#ef4444;font-weight:600;">⚠️ ${issues}</span>`
+                        : `<span style="color:#10b981;">✓ 0</span>`}</td>
+                    <td style="color:var(--text-dim);font-size:0.85rem;">${escHtml(lastAgo)}</td>
+                    <td><button class="btn btn-secondary" style="font-size:0.78rem;padding:4px 10px;"
+                        onclick="openBetaDetail('${escHtml(b.callsign)}')">View →</button></td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function openBetaDetail(callsign) {
+            document.getElementById('betaDetailCallsign').textContent = callsign;
+            document.getElementById('betaDetailBody').innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-dim);">Loading…</div>';
+            document.getElementById('betaDetailModal').style.display = 'flex';
+
+            const resp = await fetch('api.php?action=kh1_beta_detail&callsign=' + encodeURIComponent(callsign));
+            const data = await resp.json();
+            const responses = data.responses || [];
+
+            if (!responses.length) {
+                document.getElementById('betaDetailBody').innerHTML = '<div style="color:var(--text-dim);">No responses recorded yet.</div>';
+                return;
+            }
+
+            const byKey = {};
+            responses.forEach(r => byKey[r.step_key] = r);
+
+            const stepOrder = ['packaging','step01','step02','step03','step04','step05','step06','step07',
+                'step08','step09','step10','step11','step12','step13','step14','step15','step16','step17','general'];
+
+            let html = '';
+            stepOrder.forEach(key => {
+                const r = byKey[key];
+                if (!r) return;
+                const rating = parseInt(r.rating||0);
+                const label  = KH1_STEPS[key] || key;
+                let detail = '';
+
+                if (key === 'packaging') {
+                    const yn = v => v == null ? '—' : (parseInt(v) === 1 ? '✅ Yes' : '❌ No');
+                    detail = `<div style="font-size:0.82rem;color:var(--text-dim);margin-top:4px;">
+                        Pkg intact: ${yn(r.packaging_intact)} &nbsp;·&nbsp;
+                        Tools in box: ${yn(r.tools_in_box)} &nbsp;·&nbsp;
+                        Parts OK: ${yn(r.parts_undamaged)}
+                    </div>`;
+                } else if (rating) {
+                    detail = `<div style="font-size:0.82rem;color:${RATING_COLOR[rating]};margin-top:4px;">${RATING_LABEL[rating]}</div>`;
+                }
+
+                html += `<div style="padding:10px 0;border-bottom:1px solid var(--border-card);">
+                    <div style="font-size:0.84rem;font-weight:600;color:var(--text-primary);">${escHtml(label)}</div>
+                    ${detail}
+                    ${r.feedback ? `<div style="font-size:0.84rem;color:var(--text-secondary);margin-top:5px;font-style:italic;">"${escHtml(r.feedback)}"</div>` : ''}
+                </div>`;
+            });
+
+            document.getElementById('betaDetailBody').innerHTML = html;
+        }
+
+        function closeBetaDetail() {
+            document.getElementById('betaDetailModal').style.display = 'none';
+        }
+
+        function timeAgo(ts) {
+            const secs = Math.floor((Date.now() - new Date(ts)) / 1000);
+            if (secs < 60)   return 'just now';
+            if (secs < 3600) return Math.floor(secs/60) + 'm ago';
+            if (secs < 86400)return Math.floor(secs/3600) + 'h ago';
+            return Math.floor(secs/86400) + 'd ago';
         }
     </script>
 </body>

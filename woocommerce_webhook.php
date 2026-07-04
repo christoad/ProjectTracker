@@ -68,6 +68,7 @@ if ($method === 'GET') {
             SELECT id, project_name, woocommerce_product_id, status
             FROM projects
             WHERE woocommerce_product_id IS NOT NULL
+              AND status = 'active'
             ORDER BY project_name
         ");
         $out = [];

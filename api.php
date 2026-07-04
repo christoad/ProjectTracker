@@ -240,6 +240,7 @@ if ($action === 'get_project') {
             FROM project_parts pp
             JOIN parts p ON pp.part_id = p.id
             WHERE pp.project_id = ?
+            ORDER BY pp.sort_order ASC, pp.id ASC
         ");
         $stmt->execute([$id]);
         $project['parts'] = $stmt->fetchAll();
@@ -326,6 +327,7 @@ if ($action === 'save_project') {
     $pkg_length     = isset($_POST['pkg_length'])     && $_POST['pkg_length']     !== '' ? (float)$_POST['pkg_length']     : null;
     $pkg_width      = isset($_POST['pkg_width'])      && $_POST['pkg_width']      !== '' ? (float)$_POST['pkg_width']      : null;
     $pkg_height     = isset($_POST['pkg_height'])     && $_POST['pkg_height']     !== '' ? (float)$_POST['pkg_height']     : null;
+    $woocommerce_product_id = isset($_POST['woocommerce_product_id']) && $_POST['woocommerce_product_id'] !== '' ? (int)$_POST['woocommerce_product_id'] : null;
     $image_path = $_POST['image_path'] ?? null;
     
     // Handle image upload if present
@@ -350,16 +352,16 @@ if ($action === 'save_project') {
     
     if ($id) {
         if ($image_path) {
-            $stmt = $db->prepare("UPDATE projects SET project_name = ?, description = ?, status = ?, retail_price = ?, ship_weight_oz = ?, pkg_length = ?, pkg_width = ?, pkg_height = ?, image_path = ? WHERE id = ?");
-            $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $image_path, $id]);
+            $stmt = $db->prepare("UPDATE projects SET project_name = ?, description = ?, status = ?, retail_price = ?, ship_weight_oz = ?, pkg_length = ?, pkg_width = ?, pkg_height = ?, image_path = ?, woocommerce_product_id = ? WHERE id = ?");
+            $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $image_path, $woocommerce_product_id, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE projects SET project_name = ?, description = ?, status = ?, retail_price = ?, ship_weight_oz = ?, pkg_length = ?, pkg_width = ?, pkg_height = ? WHERE id = ?");
-            $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $id]);
+            $stmt = $db->prepare("UPDATE projects SET project_name = ?, description = ?, status = ?, retail_price = ?, ship_weight_oz = ?, pkg_length = ?, pkg_width = ?, pkg_height = ?, woocommerce_product_id = ? WHERE id = ?");
+            $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $woocommerce_product_id, $id]);
         }
         jsonResponse(['success' => true, 'id' => $id]);
     } else {
-        $stmt = $db->prepare("INSERT INTO projects (project_name, description, status, retail_price, ship_weight_oz, pkg_length, pkg_width, pkg_height, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $image_path]);
+        $stmt = $db->prepare("INSERT INTO projects (project_name, description, status, retail_price, ship_weight_oz, pkg_length, pkg_width, pkg_height, image_path, woocommerce_product_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $description, $status, $retail_price, $ship_weight_oz, $pkg_length, $pkg_width, $pkg_height, $image_path, $woocommerce_product_id]);
         jsonResponse(['success' => true, 'id' => $db->lastInsertId()]);
     }
 }
@@ -378,6 +380,36 @@ if ($action === 'restore_project') {
     jsonResponse(['success' => true]);
 }
 
+if ($action === 'copy_project') {
+    $id = (int)($_POST['id'] ?? 0);
+    $stmt = $db->prepare("SELECT * FROM projects WHERE id = ?");
+    $stmt->execute([$id]);
+    $src = $stmt->fetch();
+    if (!$src) { jsonResponse(['success' => false, 'error' => 'Project not found']); }
+
+    $copy = $db->prepare("INSERT INTO projects (project_name, description, status, retail_price, ship_weight_oz, pkg_length, pkg_width, pkg_height, image_path) VALUES (?, ?, 'planning', ?, ?, ?, ?, ?, ?)");
+    $copy->execute([
+        $src['project_name'] . ' (Copy)',
+        $src['description'],
+        $src['retail_price'],
+        $src['ship_weight_oz'],
+        $src['pkg_length'],
+        $src['pkg_width'],
+        $src['pkg_height'],
+        $src['image_path'],
+    ]);
+    $newId = $db->lastInsertId();
+
+    $parts = $db->prepare("SELECT part_id, quantity_required, variation_attribute, variation_value FROM project_parts WHERE project_id = ?");
+    $parts->execute([$id]);
+    $ins = $db->prepare("INSERT INTO project_parts (project_id, part_id, quantity_required, variation_attribute, variation_value) VALUES (?, ?, ?, ?, ?)");
+    foreach ($parts->fetchAll() as $row) {
+        $ins->execute([$newId, $row['part_id'], $row['quantity_required'], $row['variation_attribute'], $row['variation_value']]);
+    }
+
+    jsonResponse(['success' => true, 'id' => $newId]);
+}
+
 if ($action === 'get_trashed_projects') {
     $projects = $db->query("SELECT id, project_name, description, created_at FROM projects WHERE status NOT IN ('active','archived','planning') ORDER BY project_name")->fetchAll();
     jsonResponse($projects);
@@ -392,7 +424,7 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
         $stmt = $db->query("
             SELECT id, project_name, woocommerce_product_id, status
             FROM projects
-            WHERE woocommerce_product_id IS NOT NULL
+            WHERE woocommerce_product_id IS NOT NULL AND status NOT IN ('archived', 'trashed')
             ORDER BY project_name
         ");
         $out = [];
@@ -627,12 +659,26 @@ if ($action === 'add_project_part') {
     $variation_attribute = $_POST['variation_attribute'] ?? '';
     $variation_value     = $_POST['variation_value'] ?? '';
 
+    $sortStmt = $db->prepare("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM project_parts WHERE project_id = ?");
+    $sortStmt->execute([$project_id]);
+    $sort_order = (int)$sortStmt->fetchColumn();
+
     $stmt = $db->prepare("
-        INSERT INTO project_parts (project_id, part_id, quantity_required, notes, variation_attribute, variation_value)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO project_parts (project_id, part_id, quantity_required, notes, variation_attribute, variation_value, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE quantity_required = ?, notes = ?
     ");
-    $stmt->execute([$project_id, $part_id, $quantity, $notes, $variation_attribute, $variation_value, $quantity, $notes]);
+    $stmt->execute([$project_id, $part_id, $quantity, $notes, $variation_attribute, $variation_value, $sort_order, $quantity, $notes]);
+    jsonResponse(['success' => true]);
+}
+
+if ($action === 'reorder_bom') {
+    $items = json_decode($_POST['items'] ?? '[]', true);
+    if (!is_array($items)) { jsonResponse(['success' => false, 'error' => 'Invalid data']); }
+    $stmt = $db->prepare("UPDATE project_parts SET sort_order = ? WHERE id = ?");
+    foreach ($items as $item) {
+        $stmt->execute([(int)$item['sort_order'], (int)$item['id']]);
+    }
     jsonResponse(['success' => true]);
 }
 
@@ -1272,6 +1318,54 @@ if ($action === 'change_password') {
     } else {
         jsonResponse(['error' => 'Current password is incorrect'], 401);
     }
+}
+
+// ── KH1 Beta Feedback Admin ───────────────────────────────────────────────────
+
+if ($action === 'kh1_beta_list') {
+    $builders = $db->query("
+        SELECT
+            s.callsign,
+            s.email,
+            s.created_at,
+            COUNT(r.id)                                          AS steps_saved,
+            SUM(r.rating = 3)                                    AS trouble_count,
+            MAX(r.updated_at)                                    AS last_active
+        FROM kh1_beta_sessions s
+        LEFT JOIN kh1_beta_responses r ON r.callsign = s.callsign
+        GROUP BY s.callsign, s.email, s.created_at
+        ORDER BY last_active DESC
+    ")->fetchAll();
+
+    // Step-level issue summary (count of 'had trouble' per step across all builders)
+    $step_issues = $db->query("
+        SELECT step_key, COUNT(*) AS trouble_builders
+        FROM kh1_beta_responses
+        WHERE rating = 3
+        GROUP BY step_key
+        ORDER BY trouble_builders DESC
+    ")->fetchAll();
+
+    // Packaging summary
+    $pkg = $db->query("
+        SELECT
+            SUM(packaging_intact = 0) AS damaged_pkg,
+            SUM(tools_in_box = 0)     AS missing_tools,
+            SUM(parts_undamaged = 0)  AS damaged_parts,
+            COUNT(*)                  AS total_pkg_responses
+        FROM kh1_beta_responses
+        WHERE step_key = 'packaging'
+    ")->fetch();
+
+    jsonResponse(['builders' => $builders, 'step_issues' => $step_issues, 'packaging' => $pkg]);
+}
+
+if ($action === 'kh1_beta_detail') {
+    $callsign = strtoupper(preg_replace('/[^A-Za-z0-9\/]/', '', $_GET['callsign'] ?? ''));
+    if (strlen($callsign) < 3) jsonResponse(['error' => 'Invalid callsign'], 400);
+    $stmt = $db->prepare("SELECT * FROM kh1_beta_responses WHERE callsign = ? ORDER BY step_key");
+    $stmt->execute([$callsign]);
+    jsonResponse(['responses' => $stmt->fetchAll()]);
 }
 
 jsonResponse(['error' => 'Invalid action'], 400);

@@ -294,7 +294,7 @@ function wc_sync_project($db, int $project_id): array {
 function wc_sync_all_projects($db): array {
     $stmt = $db->query("
         SELECT id FROM projects
-        WHERE woocommerce_product_id IS NOT NULL AND status != 'archived'
+        WHERE woocommerce_product_id IS NOT NULL AND status NOT IN ('archived', 'trashed')
     ");
     $results = [];
     foreach ($stmt->fetchAll() as $row) {
