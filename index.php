@@ -897,10 +897,7 @@
     <div id="loginScreen" class="login-container">
         <div class="login-box">
             <div style="text-align: center; margin-bottom: 24px;">
-                <div class="login-logo-icon">
-                    <div class="app-logo-diamond"></div>
-                </div>
-                <div class="login-title">KI6CR</div>
+                <img src="KI6CR-Labs-stacked.svg" alt="KI6CR Labs" style="width:150px;margin-bottom:14px;">
                 <div style="font-size: 10px; color: var(--text-dim); letter-spacing: 0.8px; text-transform: uppercase;">Inventory Manager</div>
             </div>
             <form id="loginForm">
@@ -922,13 +919,7 @@
     <div id="mainApp" class="hidden">
         <header class="app-header">
             <div class="app-logo-block">
-                <div class="app-logo-icon">
-                    <div class="app-logo-diamond"></div>
-                </div>
-                <div>
-                    <div class="app-logo-callsign">KI6CR</div>
-                    <div class="app-logo-subtitle">Inventory Manager</div>
-                </div>
+                <img src="KI6CR-Labs-horizontal.svg" alt="KI6CR Labs" style="height:34px;filter:brightness(0) invert(1);opacity:0.92;">
             </div>
             <div class="user-info">
                 <span id="username" class="user-callsign"></span>
@@ -986,9 +977,18 @@
                 </div>
 
                 <div class="card" style="margin-top:1.5rem;">
-                    <div class="card-header">
-                        <h2 class="card-title">Build Bottleneck Insights</h2>
-                        <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400;">What to order to unlock more kit builds</span>
+                    <div class="card-header" style="flex-wrap:wrap;gap:8px;">
+                        <div>
+                            <h2 class="card-title">Inventory Order Planner</h2>
+                            <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400;">Every BOM part ranked by how many kits you can build — see what to order</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;">
+                            <span style="font-size:0.82rem;color:var(--text-secondary);">Order to:</span>
+                            <button class="btn btn-small" data-bt-preset="25" onclick="setBottleneckTarget(25)">25 kits</button>
+                            <button class="btn btn-small" data-bt-preset="50" onclick="setBottleneckTarget(50)" style="background:var(--accent-primary);color:white;border-color:var(--accent-primary);">50 kits</button>
+                            <button class="btn btn-small" data-bt-preset="100" onclick="setBottleneckTarget(100)">100 kits</button>
+                            <button class="btn btn-small" data-bt-preset="max" onclick="setBottleneckTarget('max')">Match Max</button>
+                        </div>
                     </div>
                     <div id="bottleneckInsights"></div>
                 </div>
@@ -1373,6 +1373,10 @@
         let projects = [];
         let parts = [];
         let orders = [];
+        let bottleneckInsightsData = [];
+        let bottleneckTarget = 50;
+        let bottleneckExpandedProjects = new Set();
+        let bottleneckInitialized = false;
 
         // BOM view state (project modal)
         let bomSortState = { column: 'part_number', direction: 'asc' };
@@ -1509,66 +1513,155 @@
                     : '<div style="padding: 1rem; color: var(--text-dim);">No recent orders</div>';
                 document.getElementById('recentOrdersList').innerHTML = ordersHtml;
 
-                // Bottleneck insights
-                const insights = data.bottleneck_insights || [];
-                if (insights.length === 0) {
-                    document.getElementById('bottleneckInsights').innerHTML =
-                        '<div style="padding:1rem;color:var(--text-dim)">No active projects with BOM data.</div>';
-                } else {
-                    const insightHtml = insights.map(proj => {
-                        const b = proj.current_buildable;
-                        const badgeColor = b === 0 ? 'var(--danger)' : b < 5 ? 'var(--warning)' : 'var(--success)';
-                        const badgeIcon  = b === 0 ? '✗' : b < 5 ? '⚠' : '✓';
-
-                        const partsHtml = proj.bottleneck_parts.map(part => {
-                            const costStr = part.estimated_cost !== null
-                                ? ` <span style="color:var(--text-secondary)">~$${parseFloat(part.estimated_cost).toFixed(2)}</span>` : '';
-                            const stockColor = part.current_stock === 0 ? 'var(--danger)' : 'var(--warning)';
-                            return `
-                            <div style="display:flex;align-items:baseline;gap:6px;margin:3px 0 3px 18px;font-size:0.875rem;flex-wrap:wrap;">
-                                <span style="color:${stockColor};font-size:0.75rem;">▲</span>
-                                <strong>${part.part_name}</strong>
-                                <span style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.78rem;">${part.part_number}</span>
-                                <span style="color:var(--text-secondary);">${part.current_stock} in stock · ${part.quantity_required}/kit</span>
-                                <span style="color:var(--accent-primary);white-space:nowrap;">→ order ${part.units_to_order}${costStr}</span>
-                            </div>`;
-                        }).join('');
-
-                        const unlockLine = proj.kits_unlocked > 0
-                            ? `<span style="font-size:0.82rem;color:var(--text-secondary);margin-left:6px;">unlock ${proj.kits_unlocked} more kit${proj.kits_unlocked !== 1 ? 's' : ''}</span>`
-                            : '';
-
-                        const totalCostLine = proj.total_order_cost !== null
-                            ? `<span style="font-size:0.82rem;color:var(--text-secondary);margin-left:6px;">· total order ~$${parseFloat(proj.total_order_cost).toFixed(2)}</span>`
-                            : '';
-
-                        const nextHint = proj.next_constraint_name
-                            ? `<div style="margin:2px 0 0 18px;font-size:0.8rem;color:var(--text-dim);">Then limited by: ${proj.next_constraint_name}</div>`
-                            : '';
-
-                        const revenueHint = proj.retail_price > 0 && proj.kits_unlocked > 0
-                            ? `<span style="font-size:0.82rem;color:var(--success);margin-left:6px;">· +$${(proj.retail_price * proj.kits_unlocked).toFixed(0)} potential revenue</span>`
-                            : '';
-
-                        return `
-                        <div style="padding:10px 16px;border-bottom:1px solid var(--border-card);">
-                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">
-                                <span style="font-weight:600;cursor:pointer;color:var(--text-primary);"
-                                      onclick="viewProject(${proj.project_id})"
-                                      onmouseover="this.style.color='var(--accent-primary)'"
-                                      onmouseout="this.style.color='var(--text-primary)'">${proj.project_name}</span>
-                                <span style="background:${badgeColor};color:white;border-radius:10px;padding:1px 9px;font-size:0.78rem;font-family:var(--font-mono);white-space:nowrap;">${badgeIcon} ${b} buildable</span>
-                                ${unlockLine}${totalCostLine}${revenueHint}
-                            </div>
-                            ${partsHtml}
-                            ${nextHint}
-                        </div>`;
-                    }).join('');
-                    document.getElementById('bottleneckInsights').innerHTML = insightHtml;
-                }
+                // Bottleneck insights — store data and render with current target
+                bottleneckInsightsData = data.bottleneck_insights || [];
+                bottleneckExpandedProjects = new Set();
+                bottleneckInitialized = false;
+                renderBottleneckInsights();
             } catch (error) {
                 console.error('Error loading dashboard:', error);
             }
+        }
+
+        function setBottleneckTarget(val) {
+            bottleneckTarget = val;
+            document.querySelectorAll('[data-bt-preset]').forEach(btn => {
+                const active = btn.dataset.btPreset == String(val);
+                btn.style.background = active ? 'var(--accent-primary)' : '';
+                btn.style.color = active ? 'white' : '';
+                btn.style.borderColor = active ? 'var(--accent-primary)' : '';
+            });
+            renderBottleneckInsights();
+        }
+
+        function toggleBottleneckProject(projectId) {
+            const body = document.getElementById(`bt-body-${projectId}`);
+            const arrow = document.getElementById(`bt-arrow-${projectId}`);
+            if (!body) return;
+            const expanding = body.style.display === 'none';
+            body.style.display = expanding ? '' : 'none';
+            if (arrow) arrow.textContent = expanding ? '▾' : '▸';
+            if (expanding) bottleneckExpandedProjects.add(projectId);
+            else bottleneckExpandedProjects.delete(projectId);
+        }
+
+        function renderBottleneckInsights() {
+            const container = document.getElementById('bottleneckInsights');
+            const insights = bottleneckInsightsData;
+            if (!insights.length) {
+                container.innerHTML = '<div style="padding:1rem;color:var(--text-dim)">No active projects with BOM data.</div>';
+                return;
+            }
+
+            // On first render, auto-expand projects that have parts needing ordering
+            if (!bottleneckInitialized) {
+                insights.forEach(proj => {
+                    const t = bottleneckTarget === 'max' ? proj.max_buildable : bottleneckTarget;
+                    if (proj.all_fixed_parts.some(p => p.buildable < t)) {
+                        bottleneckExpandedProjects.add(proj.project_id);
+                    }
+                });
+                bottleneckInitialized = true;
+            }
+
+            const html = insights.map(proj => {
+                const effectiveTarget = bottleneckTarget === 'max' ? proj.max_buildable : bottleneckTarget;
+                const b = proj.current_buildable;
+                const parts = proj.all_fixed_parts; // sorted ascending by buildable
+                const barCeiling = Math.max(proj.max_buildable, effectiveTarget, 1);
+                const badgeColor = b === 0 ? 'var(--danger)' : b < 10 ? 'var(--warning)' : b < 30 ? 'var(--info)' : 'var(--success)';
+                const isExpanded = bottleneckExpandedProjects.has(proj.project_id);
+
+                const partsRows = parts.map(part => {
+                    const isBottleneck = part.buildable === b;
+                    const needsOrder = part.buildable < effectiveTarget;
+                    const unitsNeeded = needsOrder ? Math.max(0, effectiveTarget * part.quantity_required - part.current_stock) : 0;
+                    const barPct = Math.min(100, (part.buildable / barCeiling) * 100).toFixed(1);
+                    const targetPct = Math.min(100, (effectiveTarget / barCeiling) * 100).toFixed(1);
+                    const barColor = isBottleneck ? '#ef4444' : needsOrder ? '#f59e0b' : '#10b981';
+                    const rowBg = isBottleneck ? 'rgba(239,68,68,0.04)' : '';
+
+                    let orderCell;
+                    if (!needsOrder) {
+                        orderCell = `<span style="color:var(--success);font-size:0.82rem;">✓ ok</span>`;
+                    } else {
+                        const costStr = part.unit_cost > 0
+                            ? ` <span style="color:var(--text-secondary);font-size:0.78rem;">~$${(unitsNeeded * part.unit_cost).toFixed(2)}</span>` : '';
+                        const urgStyle = isBottleneck
+                            ? 'color:var(--danger);font-weight:700;'
+                            : 'color:var(--warning);font-weight:600;';
+                        orderCell = `<span style="${urgStyle}">${unitsNeeded.toLocaleString()} units</span>${costStr}`;
+                    }
+
+                    const partNameStyle = needsOrder
+                        ? `font-weight:${isBottleneck ? '700' : '500'};color:${isBottleneck ? 'var(--danger)' : 'var(--text-primary)'};cursor:pointer;text-decoration:underline;text-decoration-color:rgba(0,0,0,0.15);`
+                        : 'cursor:pointer;text-decoration:underline;text-decoration-color:rgba(0,0,0,0.15);color:var(--text-primary);';
+
+                    return `
+                    <tr style="background:${rowBg};">
+                        <td style="padding:5px 8px;font-size:0.875rem;${partNameStyle}"
+                            onclick="viewPart(${part.part_id})"
+                            onmouseover="this.style.color='var(--accent-primary)'"
+                            onmouseout="this.style.color='${isBottleneck ? 'var(--danger)' : 'var(--text-primary)'}'">${part.part_name}</td>
+                        <td style="padding:5px 8px;font-family:var(--font-mono);font-size:0.78rem;color:var(--text-dim);">${part.part_number}</td>
+                        <td style="padding:5px 8px;text-align:center;font-family:var(--font-mono);font-size:0.82rem;color:var(--text-secondary);">${part.quantity_required}/kit</td>
+                        <td style="padding:5px 8px;text-align:right;font-family:var(--font-mono);font-size:0.82rem;">${part.current_stock.toLocaleString()}</td>
+                        <td style="padding:5px 12px 5px 8px;">
+                            <div style="position:relative;height:10px;background:var(--bg-light);border-radius:5px;width:130px;">
+                                <div style="position:absolute;left:0;top:0;height:100%;width:${barPct}%;background:${barColor};border-radius:5px;"></div>
+                                <div style="position:absolute;top:-3px;height:16px;width:2px;background:var(--accent-primary);opacity:0.65;left:${targetPct}%;transform:translateX(-50%);"></div>
+                            </div>
+                        </td>
+                        <td style="padding:5px 8px;text-align:center;font-family:var(--font-mono);font-size:0.88rem;font-weight:${isBottleneck ? '700' : '500'};color:${isBottleneck ? 'var(--danger)' : 'var(--text-primary)'};">${part.buildable}</td>
+                        <td style="padding:5px 8px;">${orderCell}</td>
+                    </tr>`;
+                }).join('');
+
+                const neededParts = parts.filter(p => p.buildable < effectiveTarget);
+                const totalCost = neededParts.reduce((sum, p) => {
+                    if (p.unit_cost > 0) sum += Math.max(0, effectiveTarget * p.quantity_required - p.current_stock) * p.unit_cost;
+                    return sum;
+                }, 0);
+                const targetLabel = bottleneckTarget === 'max' ? 'max' : `${effectiveTarget} kits`;
+                const costSummary = totalCost > 0 && neededParts.length > 0
+                    ? `<span style="font-size:0.82rem;color:var(--text-secondary);margin-left:8px;">~$${totalCost.toFixed(2)} to stock to ${targetLabel}</span>` : '';
+                const partsNeededLabel = neededParts.length > 0
+                    ? `<span style="font-size:0.82rem;color:var(--warning);margin-left:4px;">${neededParts.length} part${neededParts.length !== 1 ? 's' : ''} to order</span>`
+                    : `<span style="font-size:0.82rem;color:var(--success);margin-left:4px;">all stocked</span>`;
+
+                return `
+                <div style="border-bottom:1px solid var(--border-card);">
+                    <div style="display:flex;align-items:center;gap:8px;padding:11px 16px;cursor:pointer;user-select:none;"
+                         onclick="toggleBottleneckProject(${proj.project_id})">
+                        <span id="bt-arrow-${proj.project_id}" style="font-size:0.85rem;color:var(--text-dim);flex-shrink:0;width:14px;">${isExpanded ? '▾' : '▸'}</span>
+                        <span style="font-weight:700;font-size:0.95rem;color:var(--accent-primary);"
+                              onclick="event.stopPropagation();viewProject(${proj.project_id})">${proj.project_name}</span>
+                        <span style="background:${badgeColor};color:white;border-radius:10px;padding:2px 9px;font-size:0.77rem;font-family:var(--font-mono);white-space:nowrap;flex-shrink:0;">${b} buildable</span>
+                        ${proj.retail_price > 0 ? `<span style="font-size:0.82rem;color:var(--text-dim);">$${parseFloat(proj.retail_price).toFixed(0)} retail</span>` : ''}
+                        ${partsNeededLabel}${costSummary}
+                    </div>
+                    <div id="bt-body-${proj.project_id}" style="display:${isExpanded ? '' : 'none'};">
+                        <div style="overflow-x:auto;padding:0 16px;">
+                        <table style="width:100%;border-collapse:collapse;margin-bottom:14px;min-width:520px;">
+                            <thead>
+                                <tr style="border-bottom:1px solid var(--bg-light);">
+                                    <th style="padding:3px 8px;text-align:left;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">Part</th>
+                                    <th style="padding:3px 8px;text-align:left;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">Part #</th>
+                                    <th style="padding:3px 8px;text-align:center;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">Qty/Kit</th>
+                                    <th style="padding:3px 8px;text-align:right;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">In Stock</th>
+                                    <th style="padding:3px 8px;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;min-width:150px;">Abundance <span style="font-weight:400;opacity:0.7;">(│= target)</span></th>
+                                    <th style="padding:3px 8px;text-align:center;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">Can Build</th>
+                                    <th style="padding:3px 8px;text-align:left;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">To Reach ${targetLabel}</th>
+                                </tr>
+                            </thead>
+                            <tbody>${partsRows}</tbody>
+                        </table>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            container.innerHTML = html;
         }
 
         // Projects

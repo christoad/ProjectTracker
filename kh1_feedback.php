@@ -462,6 +462,47 @@ textarea.notes-input:focus { border-color: var(--accent); }
 }
 .btn-restart:hover { border-color: var(--accent); color: var(--accent); }
 
+/* ── Coming improvements bubble ── */
+.updates-bubble {
+  background: #f0f6ff;
+  border: 1px solid #c7d9fb;
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.updates-bubble-heading {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 7px;
+}
+.updates-bubble ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.updates-bubble ul li {
+  color: var(--muted);
+  padding-left: 14px;
+  position: relative;
+}
+.updates-bubble ul li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-size: 0.75rem;
+  top: 1px;
+}
+
 /* ── General step extra ── */
 .general-prompts {
   list-style: none;
@@ -500,6 +541,14 @@ textarea.notes-input:focus { border-color: var(--accent); }
 </header>
 
 <div class="wrap">
+
+  <!-- ── Upcoming improvements notice ── -->
+  <div class="updates-bubble">
+    <div class="updates-bubble-heading">Currently in development</div>
+    <ul>
+      <li>Photos of every part in the kit for easy identification</li>
+    </ul>
+  </div>
 
   <!-- ── Callsign entry screen ── -->
   <div id="callsign-screen">

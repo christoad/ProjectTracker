@@ -65,6 +65,7 @@ if ($action === 'get_dashboard') {
             proj.retail_price,
             pp.quantity_required,
             pp.variation_attribute,
+            p.id             AS part_id,
             p.part_name,
             p.part_number,
             p.current_stock,
@@ -151,16 +152,26 @@ if ($action === 'get_dashboard') {
             }
         }
 
+        $max_buildable = $fixed[count($fixed) - 1]['buildable']; // sorted ascending
+
+        $all_fixed_parts = array_map(fn($fp) => [
+            'part_id'           => (int) $fp['part_id'],
+            'part_name'         => $fp['part_name'],
+            'part_number'       => $fp['part_number'],
+            'current_stock'     => (int) $fp['current_stock'],
+            'quantity_required' => (int) $fp['quantity_required'],
+            'buildable'         => (int) $fp['buildable'],
+            'unit_cost'         => (float) $fp['unit_cost'],
+        ], $fixed);
+
         $bottleneck_insights[] = [
             'project_id'           => $project_id,
             'project_name'         => $project['project_name'],
             'retail_price'         => $project['retail_price'],
             'current_buildable'    => $min_buildable,
-            'target_buildable'     => $target,
-            'kits_unlocked'        => $kits_unlocked,
+            'max_buildable'        => $max_buildable,
             'bottleneck_parts'     => $bottleneck_parts,
-            'total_order_cost'     => $total_order_cost > 0 ? $total_order_cost : null,
-            'next_constraint_name' => $next_constraint_name,
+            'all_fixed_parts'      => $all_fixed_parts,
             'total_fixed_parts'    => count($fixed),
         ];
     }
