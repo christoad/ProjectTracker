@@ -1389,7 +1389,20 @@ if ($action === 'kh1_beta_detail') {
     if (strlen($callsign) < 3) jsonResponse(['error' => 'Invalid callsign'], 400);
     $stmt = $db->prepare("SELECT * FROM kh1_beta_responses WHERE callsign = ? ORDER BY step_key");
     $stmt->execute([$callsign]);
-    jsonResponse(['responses' => $stmt->fetchAll()]);
+    $responses = $stmt->fetchAll();
+    $video_exts = ['mp4','mov','webm','avi','mkv','m4v'];
+    $stmt = $db->prepare("SELECT id, step_key, filename FROM kh1_beta_photos WHERE callsign = ? ORDER BY created_at ASC");
+    $stmt->execute([$callsign]);
+    $photos_by_step = [];
+    foreach ($stmt->fetchAll() as $p) {
+        $ext = strtolower(pathinfo($p['filename'], PATHINFO_EXTENSION));
+        $photos_by_step[$p['step_key']][] = [
+            'id'   => (int)$p['id'],
+            'url'  => 'kh1_uploads/' . $p['filename'],
+            'type' => in_array($ext, $video_exts) ? 'video' : 'image',
+        ];
+    }
+    jsonResponse(['responses' => $responses, 'photos' => $photos_by_step]);
 }
 
 jsonResponse(['error' => 'Invalid action'], 400);

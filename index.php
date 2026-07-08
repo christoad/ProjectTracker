@@ -4531,8 +4531,9 @@
             const resp = await fetch('api.php?action=kh1_beta_detail&callsign=' + encodeURIComponent(callsign));
             const data = await resp.json();
             const responses = data.responses || [];
+            const photosByStep = data.photos || {};
 
-            if (!responses.length) {
+            if (!responses.length && !Object.keys(photosByStep).length) {
                 document.getElementById('betaDetailBody').innerHTML = '<div style="color:var(--text-dim);">No responses recorded yet.</div>';
                 return;
             }
@@ -4546,12 +4547,13 @@
             let html = '';
             stepOrder.forEach(key => {
                 const r = byKey[key];
-                if (!r) return;
-                const rating = parseInt(r.rating||0);
+                const photos = photosByStep[key] || [];
+                if (!r && !photos.length) return;
+                const rating = parseInt((r||{}).rating||0);
                 const label  = KH1_STEPS[key] || key;
                 let detail = '';
 
-                if (key === 'packaging') {
+                if (key === 'packaging' && r) {
                     const yn = v => v == null ? '—' : (parseInt(v) === 1 ? '✅ Yes' : '❌ No');
                     detail = `<div style="font-size:0.82rem;color:var(--text-dim);margin-top:4px;">
                         Pkg intact: ${yn(r.packaging_intact)} &nbsp;·&nbsp;
@@ -4562,10 +4564,23 @@
                     detail = `<div style="font-size:0.82rem;color:${RATING_COLOR[rating]};margin-top:4px;">${RATING_LABEL[rating]}</div>`;
                 }
 
+                const photosHtml = photos.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${
+                    photos.map(p => p.type === 'video'
+                        ? `<a href="${escHtml(p.url)}" target="_blank" style="position:relative;display:block;width:72px;height:72px;border-radius:6px;overflow:hidden;border:1px solid var(--border-card);background:#1f2937;flex-shrink:0;">
+                             <video src="${escHtml(p.url)}" muted preload="metadata" playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none;display:block;"></video>
+                             <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;"><span style="font-size:1.2rem;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.7));">▶</span></div>
+                           </a>`
+                        : `<a href="${escHtml(p.url)}" target="_blank" style="display:block;width:72px;height:72px;border-radius:6px;overflow:hidden;border:1px solid var(--border-card);flex-shrink:0;">
+                             <img src="${escHtml(p.url)}" style="width:100%;height:100%;object-fit:cover;display:block;">
+                           </a>`
+                    ).join('')
+                }</div>` : '';
+
                 html += `<div style="padding:10px 0;border-bottom:1px solid var(--border-card);">
                     <div style="font-size:0.84rem;font-weight:600;color:var(--text-primary);">${escHtml(label)}</div>
                     ${detail}
-                    ${r.feedback ? `<div style="font-size:0.84rem;color:var(--text-secondary);margin-top:5px;font-style:italic;">"${escHtml(r.feedback)}"</div>` : ''}
+                    ${r && r.feedback ? `<div style="font-size:0.84rem;color:var(--text-secondary);margin-top:5px;font-style:italic;">"${escHtml(r.feedback)}"</div>` : ''}
+                    ${photosHtml}
                 </div>`;
             });
 
