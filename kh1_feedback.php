@@ -525,6 +525,106 @@ textarea.notes-input:focus { border-color: var(--accent); }
   color: var(--accent);
   font-weight: bold;
 }
+
+/* ── Photo upload ── */
+.photo-upload-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.photo-upload-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.photo-upload-label .optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.75rem;
+}
+.photo-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  min-height: 0;
+}
+.photo-thumb {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #f0f4ff;
+}
+.photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.photo-delete {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 22px;
+  height: 22px;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  font-size: 0.6rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+.photo-uploading {
+  width: 84px;
+  height: 84px;
+  border-radius: 8px;
+  border: 2px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  animation: photoPulse 1s ease-in-out infinite;
+  background: #f8fbff;
+}
+@keyframes photoPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.btn-add-photo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  background: var(--card);
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-add-photo:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 </style>
 </head>
 <body>
@@ -623,10 +723,11 @@ const STEPS = [
   { key: 'general', label: 'General Feedback',                type: 'general',  num: 'Final'   },
 ];
 
-let callsign  = '';
+let callsign    = '';
 let currentStep = 0;
-let responses = {};
-let saveTimer = null;
+let responses   = {};
+let stepPhotos  = {};
+let saveTimer   = null;
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
@@ -663,7 +764,8 @@ async function startForm() {
   try {
     const r = await fetch('kh1_feedback_api.php?action=get_responses&callsign=' + encodeURIComponent(callsign));
     const d = await r.json();
-    if (d.responses) responses = d.responses;
+    if (d.responses) responses   = d.responses;
+    if (d.photos)    stepPhotos  = d.photos;
   } catch(e) {}
 
   document.getElementById('callsign-screen').style.display = 'none';
@@ -812,6 +914,7 @@ function renderStandardStep(step, saved) {
     </div>
     <div class="feedback-label">Notes <span class="optional">(optional)</span></div>
     <textarea class="feedback-input" id="feedbackText" placeholder="Anything confusing? Something that could be clearer? Great catches welcome.">${escHtml(feedback)}</textarea>
+    ${photoSectionHtml(step.key)}
   </div>
 </div>`;
 }
@@ -857,6 +960,7 @@ function renderPackagingStep(step, saved) {
     </div>
     <div class="feedback-label" style="margin-top:18px;">Notes about packaging <span class="optional">(optional)</span></div>
     <textarea class="notes-input" id="feedbackText" placeholder="Describe any damage or issues found.">${escHtml(notes)}</textarea>
+    ${photoSectionHtml(step.key)}
   </div>
 </div>`;
 }
@@ -891,6 +995,7 @@ function renderGeneralStep(step, saved) {
       <li>What did you like most?</li>
     </ul>
     <textarea class="feedback-input" id="feedbackText" placeholder="Any and all thoughts welcome…" style="min-height:130px;">${escHtml(feedback)}</textarea>
+    ${photoSectionHtml(step.key)}
   </div>
 </div>`;
 }
@@ -979,6 +1084,102 @@ function showSaveStatus(state) {
 
 function hideSaveStatus() {
   document.getElementById('saveStatus').classList.add('hidden');
+}
+
+// ── Photo upload ──────────────────────────────────────────────────────────────
+function mediaThumbInner(photo) {
+  if (photo.type === 'video') {
+    return `<video src="${escHtml(photo.url)}" muted preload="metadata" playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none;display:block;"></video>`
+         + `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;"><span style="font-size:1.5rem;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6));">▶</span></div>`;
+  }
+  return `<img src="${escHtml(photo.url)}" alt="Uploaded photo">`;
+}
+
+function photoSectionHtml(stepKey) {
+  const photos = stepPhotos[stepKey] || [];
+  const thumbs = photos.map(p => `
+    <div class="photo-thumb" id="photo-${p.id}">
+      ${mediaThumbInner(p)}
+      <button class="photo-delete" onclick="deletePhoto(${p.id},'${stepKey}')" title="Remove">✕</button>
+    </div>`).join('');
+  return `
+    <div class="photo-upload-section">
+      <div class="photo-upload-label">Photos / Video <span class="optional">(optional)</span></div>
+      <div class="photo-grid" id="photoGrid_${stepKey}">${thumbs}</div>
+      <button class="btn-add-photo" type="button" onclick="triggerPhotoUpload('${stepKey}')">📷 Add Photo or Video</button>
+      <div style="font-size:0.72rem;color:var(--dim);margin-top:6px;font-family:var(--mono);">Up to 512 MB per file</div>
+      <input type="file" accept="image/*,video/*" id="photoInput_${stepKey}" style="display:none" onchange="handlePhotoUpload(this,'${stepKey}')">
+    </div>`;
+}
+
+function triggerPhotoUpload(stepKey) {
+  document.getElementById('photoInput_' + stepKey).click();
+}
+
+async function handlePhotoUpload(input, stepKey) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  const grid = document.getElementById('photoGrid_' + stepKey);
+  const placeholder = document.createElement('div');
+  placeholder.className = 'photo-uploading';
+  placeholder.textContent = '⏳';
+  grid.appendChild(placeholder);
+
+  const fd = new FormData();
+  fd.append('action',   'upload_photo');
+  fd.append('callsign', callsign);
+  fd.append('step_key', stepKey);
+  fd.append('photo',    file);
+
+  try {
+    const res = await fetch('kh1_feedback_api.php', { method: 'POST', body: fd });
+    const d   = await res.json();
+    grid.removeChild(placeholder);
+    if (d.success && d.photo) {
+      if (!stepPhotos[stepKey]) stepPhotos[stepKey] = [];
+      stepPhotos[stepKey].push(d.photo);
+      const thumb = document.createElement('div');
+      thumb.className = 'photo-thumb';
+      thumb.id = 'photo-' + d.photo.id;
+      thumb.innerHTML = mediaThumbInner(d.photo) + `<button class="photo-delete" onclick="deletePhoto(${d.photo.id},'${stepKey}')" title="Remove">✕</button>`;
+      grid.appendChild(thumb);
+    } else {
+      alert(d.error || 'Upload failed. Please try again.');
+    }
+  } catch(e) {
+    grid.removeChild(placeholder);
+    alert('Upload failed. Please check your connection and try again.');
+  }
+}
+
+async function deletePhoto(photoId, stepKey) {
+  if (!confirm('Remove this photo?')) return;
+  const el = document.getElementById('photo-' + photoId);
+  if (el) el.style.opacity = '0.4';
+
+  const fd = new FormData();
+  fd.append('action',   'delete_photo');
+  fd.append('callsign', callsign);
+  fd.append('photo_id', photoId);
+
+  try {
+    const res = await fetch('kh1_feedback_api.php', { method: 'POST', body: fd });
+    const d   = await res.json();
+    if (d.success) {
+      if (el) el.remove();
+      if (stepPhotos[stepKey]) {
+        stepPhotos[stepKey] = stepPhotos[stepKey].filter(p => p.id !== photoId);
+      }
+    } else {
+      if (el) el.style.opacity = '1';
+      alert('Could not delete photo. Please try again.');
+    }
+  } catch(e) {
+    if (el) el.style.opacity = '1';
+    alert('Could not delete photo. Please try again.');
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
