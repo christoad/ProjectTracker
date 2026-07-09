@@ -1,23 +1,28 @@
 <?php
 /**
- * Shippo → Tracker / WooCommerce Status Sync
+ * Shippo → Tracker / WooCommerce Status Sync + Delivery Email
  *
  * CANONICAL SOURCE: ProjectTracker/shippo_webhook.php
  * Deployed to:      ki6cr.com/projects/shippo_webhook.php
  *
- * Receives transaction_created webhooks from Shippo (fired when a label is purchased).
+ * Handles two Shippo webhook events:
  *
- * Flow:
- *   1. Resolves the WooCommerce order ID from the Shippo order (via API call if needed)
- *   2. Updates the tracker order: status → shipped, tracking number, tracking URL, shipped_at
- *   3. Marks the WooCommerce order as Completed (triggers WC customer completion email)
- *   4. Adds a customer-visible tracking note to the WooCommerce order
+ * 1. transaction_created — fired when a label is purchased
+ *    Flow:
+ *      a. Resolves the WooCommerce order ID from the Shippo order (via API call if needed)
+ *      b. Updates the tracker order: status → shipped, tracking number, tracking URL, shipped_at
+ *      c. Marks the WooCommerce order as Completed (triggers WC customer completion email)
+ *      d. Adds a customer-visible tracking note to the WooCommerce order
+ *
+ * 2. track_updated — fired when tracking status changes
+ *    When status = DELIVERED: looks up the tracker order by tracking number and sends
+ *    a personalized delivery email from orders@ki6cr-labs.com with Reply-To set to Chris.
  *
  * Setup in Shippo:
- *   Settings → Webhooks → Add Webhook
- *   URL:   https://ki6cr.com/projects/shippo_webhook.php
- *   Event: transaction_created
- *   Mode:  Live
+ *   Settings → Webhooks → Add Webhook (repeat for each event)
+ *   URL:    https://ki6cr.com/projects/shippo_webhook.php
+ *   Events: transaction_created AND track_updated
+ *   Mode:   Live
  *
  * No webhook signing secret is required (Shippo's UI doesn't provide one
  * for this webhook type — just a mode toggle).
@@ -44,9 +49,57 @@ if (!$payload || !isset($payload['event'])) {
     exit;
 }
 
-// Only handle successful label purchases
-if ($payload['event'] !== 'transaction_created') {
-    echo json_encode(['skipped' => true, 'reason' => 'Unhandled event: ' . $payload['event']]);
+$event = $payload['event'] ?? '';
+
+// ─── track_updated: send delivery email when package is delivered ─────────────
+if ($event === 'track_updated') {
+    $data            = $payload['data'] ?? [];
+    $tracking_status = $data['tracking_status']['status'] ?? '';
+    $tracking_number = trim($data['tracking_number'] ?? '');
+
+    if ($tracking_status !== 'DELIVERED') {
+        echo json_encode(['skipped' => true, 'reason' => 'Tracking status not DELIVERED: ' . $tracking_status]);
+        exit;
+    }
+
+    if (!$tracking_number) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Missing tracking_number in track_updated payload']);
+        exit;
+    }
+
+    $db   = getDB();
+    $stmt = $db->prepare("
+        SELECT o.order_number, o.customer_name, o.customer_email, p.project_name
+        FROM orders o
+        LEFT JOIN projects p ON o.project_id = p.id
+        WHERE o.tracking_number = ?
+        LIMIT 1
+    ");
+    $stmt->execute([$tracking_number]);
+    $order = $stmt->fetch();
+
+    if (!$order) {
+        echo json_encode(['skipped' => true, 'reason' => 'No tracker order found for tracking number: ' . $tracking_number]);
+        exit;
+    }
+
+    $email_sent = send_delivery_email($order);
+
+    echo json_encode([
+        'success'        => true,
+        'event'          => 'track_updated',
+        'status'         => 'DELIVERED',
+        'order_number'   => $order['order_number'],
+        'customer_email' => $order['customer_email'],
+        'email_sent'     => $email_sent,
+    ]);
+    exit;
+}
+
+// ─── transaction_created: label purchased → update tracker + WooCommerce ──────
+if ($event !== 'transaction_created') {
+    echo json_encode(['skipped' => true, 'reason' => 'Unhandled event: ' . $event]);
     exit;
 }
 
@@ -147,3 +200,29 @@ echo json_encode([
     'wc_status_result' => $wc_status_result,
     'wc_note_result'   => $wc_note_result,
 ]);
+
+// ─── Delivery email helper ────────────────────────────────────────────────────
+
+function send_delivery_email(array $order): bool {
+    $first_name  = explode(' ', trim($order['customer_name']))[0];
+    $email       = $order['customer_email'];
+    $kit_name    = $order['project_name'] ?? 'your kit';
+    $order_number = $order['order_number'];
+
+    $subject = "Your KI6CR Labs order has arrived!";
+
+    $message  = "Hi {$first_name},\n\n";
+    $message .= "Your {$kit_name} just arrived! I hope you enjoy the build.\n\n";
+    $message .= "If you run into any questions during assembly, just reply to this email — I read every one personally and I'm happy to help.\n\n";
+    $message .= "I'd love to hear how it goes, and if you get on the air with it, feel free to send me a note.\n\n";
+    $message .= "73 de KI6CR,\n";
+    $message .= "Chris\n";
+    $message .= "ki6cr-labs.com\n";
+
+    $headers  = "From: KI6CR Labs <orders@ki6cr-labs.com>\r\n";
+    $headers .= "Reply-To: cr@christopherreddick.com\r\n";
+    $headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
+    $headers .= "X-Mailer: PHP/" . phpversion();
+
+    return mail($email, $subject, $message, $headers);
+}

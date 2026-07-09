@@ -69,6 +69,7 @@ if ($action === 'get_dashboard') {
             p.part_name,
             p.part_number,
             p.current_stock,
+            p.weighted_avg_cost,
             (SELECT cost  FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) AS preferred_cost,
             (SELECT MIN(cost) FROM part_sources ps WHERE ps.part_id = p.id) AS lowest_cost
         FROM projects proj
@@ -104,7 +105,9 @@ if ($action === 'get_dashboard') {
         // Annotate each part with its buildable count and unit cost
         foreach ($fixed as &$fp) {
             $fp['buildable']  = (int) floor($fp['current_stock'] / $fp['quantity_required']);
-            $fp['unit_cost']  = (float) ($fp['preferred_cost'] ?? $fp['lowest_cost'] ?? 0);
+            $fp['unit_cost']  = $fp['weighted_avg_cost'] > 0
+                ? (float) $fp['weighted_avg_cost']
+                : (float) ($fp['preferred_cost'] ?? $fp['lowest_cost'] ?? 0);
         }
         unset($fp);
 
@@ -270,7 +273,9 @@ if ($action === 'get_project') {
 
         foreach ($project['parts'] as &$part) {
             // Use weighted average cost from actual inventory first, fall back to supplier pricing
-            $unit_cost = $part['weighted_avg_cost'] ?? $part['preferred_cost'] ?? $part['lowest_cost'] ?? 0;
+            $unit_cost = $part['weighted_avg_cost'] > 0
+                ? (float) $part['weighted_avg_cost']
+                : (float) ($part['preferred_cost'] ?? $part['lowest_cost'] ?? 0);
             $part['unit_cost'] = $unit_cost;
             $part['line_total'] = $unit_cost * $part['quantity_required'];
 
