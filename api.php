@@ -520,7 +520,13 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
 
 // Parts
 if ($action === 'get_parts') {
-    $parts = $db->query("SELECT * FROM parts ORDER BY part_name ASC")->fetchAll();
+    $parts = $db->query("
+        SELECT p.*,
+            (SELECT COALESCE(SUM(ic.quantity), 0) FROM inventory_checkins ic WHERE ic.part_id = p.id AND ic.received = 0) as pending_order_qty,
+            (SELECT COUNT(*) FROM inventory_checkins ic WHERE ic.part_id = p.id AND ic.received = 0) as pending_order_count
+        FROM parts p
+        ORDER BY p.part_name ASC
+    ")->fetchAll();
     jsonResponse($parts);
 }
 
@@ -541,8 +547,8 @@ if ($action === 'get_part') {
         $stmt->execute([$id]);
         $part['sources'] = $stmt->fetchAll();
         
-        // Get recent check-ins
-        $stmt = $db->prepare("SELECT * FROM inventory_checkins WHERE part_id = ? ORDER BY purchase_date DESC LIMIT 10");
+        // Get check-ins: pending first, then received newest-first
+        $stmt = $db->prepare("SELECT * FROM inventory_checkins WHERE part_id = ? ORDER BY received ASC, purchase_date DESC LIMIT 50");
         $stmt->execute([$id]);
         $part['checkins'] = $stmt->fetchAll();
         
@@ -916,7 +922,8 @@ if ($action === 'checkin_inventory') {
     $quantity = $_POST['quantity'] ?? 0;
     $gross_total = $_POST['gross_total'] ?? null;
     $unit_cost = $_POST['unit_cost'] ?? null;
-    
+    $received = intval($_POST['received'] ?? 0);
+
     // Calculate the other value if only one is provided
     if ($gross_total !== null && $unit_cost === null) {
         $gross_total = floatval($gross_total);
@@ -931,38 +938,42 @@ if ($action === 'checkin_inventory') {
     } else {
         jsonResponse(['error' => 'Must provide either unit_cost or gross_total'], 400);
     }
-    
+
     $total_cost = $gross_total;
     $supplier_name = $_POST['supplier_name'] ?? '';
     $purchase_date = $_POST['purchase_date'] ?? date('Y-m-d');
     $notes = $_POST['notes'] ?? '';
-    
-    // Begin transaction
+    $received_at = $received ? date('Y-m-d H:i:s') : null;
+
     $db->beginTransaction();
-    
+
     try {
-        // Get current stock and weighted average cost
-        $stmt = $db->prepare("SELECT current_stock, weighted_avg_cost FROM parts WHERE id = ?");
-        $stmt->execute([$part_id]);
-        $part = $stmt->fetch();
-        
-        $current_stock = $part['current_stock'];
-        $current_avg_cost = $part['weighted_avg_cost'] ?? 0;
-        
-        // Calculate new weighted average cost
-        $old_value = $current_stock * $current_avg_cost;
-        $new_value = $quantity * $unit_cost;
-        $total_quantity = $current_stock + $quantity;
-        $new_avg_cost = $total_quantity > 0 ? ($old_value + $new_value) / $total_quantity : 0;
-        
-        // Insert check-in record
-        $stmt = $db->prepare("INSERT INTO inventory_checkins (part_id, quantity, unit_cost, total_cost, supplier_name, purchase_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$part_id, $quantity, $unit_cost, $total_cost, $supplier_name, $purchase_date, $notes]);
-        
-        // Update part stock and weighted average cost
-        $stmt = $db->prepare("UPDATE parts SET current_stock = current_stock + ?, weighted_avg_cost = ? WHERE id = ?");
-        $stmt->execute([$quantity, $new_avg_cost, $part_id]);
-        
+        // Insert order record (pending or already-received)
+        $stmt = $db->prepare("INSERT INTO inventory_checkins (part_id, quantity, unit_cost, total_cost, supplier_name, purchase_date, notes, received, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$part_id, $quantity, $unit_cost, $total_cost, $supplier_name, $purchase_date, $notes, $received, $received_at]);
+
+        $new_avg_cost = null;
+
+        if ($received) {
+            // Get current stock and weighted average cost
+            $stmt = $db->prepare("SELECT current_stock, weighted_avg_cost FROM parts WHERE id = ?");
+            $stmt->execute([$part_id]);
+            $part = $stmt->fetch();
+
+            $current_stock = $part['current_stock'];
+            $current_avg_cost = $part['weighted_avg_cost'] ?? 0;
+
+            // Calculate new weighted average cost
+            $old_value = $current_stock * $current_avg_cost;
+            $new_value = $quantity * $unit_cost;
+            $total_quantity = $current_stock + $quantity;
+            $new_avg_cost = $total_quantity > 0 ? ($old_value + $new_value) / $total_quantity : 0;
+
+            // Update part stock and weighted average cost
+            $stmt = $db->prepare("UPDATE parts SET current_stock = current_stock + ?, weighted_avg_cost = ? WHERE id = ?");
+            $stmt->execute([$quantity, $new_avg_cost, $part_id]);
+        }
+
         $db->commit();
         jsonResponse(['success' => true, 'new_avg_cost' => $new_avg_cost]);
     } catch (Exception $e) {
@@ -974,41 +985,43 @@ if ($action === 'checkin_inventory') {
 if ($action === 'delete_checkin') {
     $id = $_POST['id'] ?? 0;
     $part_id = $_POST['part_id'] ?? 0;
-    
+
     $db->beginTransaction();
-    
+
     try {
         // Get the check-in details before deleting
-        $stmt = $db->prepare("SELECT quantity, unit_cost FROM inventory_checkins WHERE id = ?");
+        $stmt = $db->prepare("SELECT quantity, unit_cost, received FROM inventory_checkins WHERE id = ?");
         $stmt->execute([$id]);
         $checkin = $stmt->fetch();
-        
+
         if (!$checkin) {
             jsonResponse(['error' => 'Check-in not found'], 404);
         }
-        
-        // Delete the check-in
+
+        // Delete the record
         $stmt = $db->prepare("DELETE FROM inventory_checkins WHERE id = ?");
         $stmt->execute([$id]);
-        
-        // Reduce stock by the deleted quantity
-        $stmt = $db->prepare("UPDATE parts SET current_stock = GREATEST(0, current_stock - ?) WHERE id = ?");
-        $stmt->execute([$checkin['quantity'], $part_id]);
-        
-        // Recalculate weighted average cost from remaining check-ins
-        $stmt = $db->prepare("
-            SELECT SUM(quantity) as total_qty, SUM(quantity * unit_cost) as total_value 
-            FROM inventory_checkins 
-            WHERE part_id = ?
-        ");
-        $stmt->execute([$part_id]);
-        $totals = $stmt->fetch();
-        
-        $new_avg_cost = $totals['total_qty'] > 0 ? $totals['total_value'] / $totals['total_qty'] : 0;
-        
-        $stmt = $db->prepare("UPDATE parts SET weighted_avg_cost = ? WHERE id = ?");
-        $stmt->execute([$new_avg_cost, $part_id]);
-        
+
+        if ($checkin['received']) {
+            // Only reverse stock for received orders
+            $stmt = $db->prepare("UPDATE parts SET current_stock = GREATEST(0, current_stock - ?) WHERE id = ?");
+            $stmt->execute([$checkin['quantity'], $part_id]);
+
+            // Recalculate weighted average cost from remaining received check-ins
+            $stmt = $db->prepare("
+                SELECT SUM(quantity) as total_qty, SUM(quantity * unit_cost) as total_value
+                FROM inventory_checkins
+                WHERE part_id = ? AND received = 1
+            ");
+            $stmt->execute([$part_id]);
+            $totals = $stmt->fetch();
+
+            $new_avg_cost = $totals['total_qty'] > 0 ? $totals['total_value'] / $totals['total_qty'] : 0;
+
+            $stmt = $db->prepare("UPDATE parts SET weighted_avg_cost = ? WHERE id = ?");
+            $stmt->execute([$new_avg_cost, $part_id]);
+        }
+
         $db->commit();
         jsonResponse(['success' => true]);
     } catch (Exception $e) {
@@ -1044,41 +1057,106 @@ if ($action === 'edit_checkin') {
     $db->beginTransaction();
     
     try {
-        // Get old quantity
-        $stmt = $db->prepare("SELECT quantity FROM inventory_checkins WHERE id = ?");
+        // Get old quantity and received status
+        $stmt = $db->prepare("SELECT quantity, received FROM inventory_checkins WHERE id = ?");
         $stmt->execute([$id]);
         $old_checkin = $stmt->fetch();
-        
+
         if (!$old_checkin) {
             jsonResponse(['error' => 'Check-in not found'], 404);
         }
-        
-        $qty_diff = $quantity - $old_checkin['quantity'];
-        
-        // Update check-in
+
+        // Update the record fields
         $stmt = $db->prepare("UPDATE inventory_checkins SET quantity = ?, unit_cost = ?, total_cost = ?, supplier_name = ?, purchase_date = ?, notes = ? WHERE id = ?");
         $stmt->execute([$quantity, $unit_cost, $total_cost, $supplier_name, $purchase_date, $notes, $id]);
-        
-        // Adjust stock
-        $stmt = $db->prepare("UPDATE parts SET current_stock = GREATEST(0, current_stock + ?) WHERE id = ?");
-        $stmt->execute([$qty_diff, $part_id]);
-        
-        // Recalculate weighted average cost
-        $stmt = $db->prepare("
-            SELECT SUM(quantity) as total_qty, SUM(quantity * unit_cost) as total_value 
-            FROM inventory_checkins 
-            WHERE part_id = ?
-        ");
-        $stmt->execute([$part_id]);
-        $totals = $stmt->fetch();
-        
-        $new_avg_cost = $totals['total_qty'] > 0 ? $totals['total_value'] / $totals['total_qty'] : 0;
-        
-        $stmt = $db->prepare("UPDATE parts SET weighted_avg_cost = ? WHERE id = ?");
-        $stmt->execute([$new_avg_cost, $part_id]);
-        
+
+        if ($old_checkin['received']) {
+            $qty_diff = $quantity - $old_checkin['quantity'];
+
+            // Adjust stock
+            $stmt = $db->prepare("UPDATE parts SET current_stock = GREATEST(0, current_stock + ?) WHERE id = ?");
+            $stmt->execute([$qty_diff, $part_id]);
+
+            // Recalculate weighted average cost from received check-ins only
+            $stmt = $db->prepare("
+                SELECT SUM(quantity) as total_qty, SUM(quantity * unit_cost) as total_value
+                FROM inventory_checkins
+                WHERE part_id = ? AND received = 1
+            ");
+            $stmt->execute([$part_id]);
+            $totals = $stmt->fetch();
+
+            $new_avg_cost = $totals['total_qty'] > 0 ? $totals['total_value'] / $totals['total_qty'] : 0;
+
+            $stmt = $db->prepare("UPDATE parts SET weighted_avg_cost = ? WHERE id = ?");
+            $stmt->execute([$new_avg_cost, $part_id]);
+        }
+
         $db->commit();
         jsonResponse(['success' => true]);
+    } catch (Exception $e) {
+        $db->rollBack();
+        jsonResponse(['error' => $e->getMessage()], 500);
+    }
+}
+
+if ($action === 'mark_received') {
+    $id = $_POST['id'] ?? 0;
+    $part_id = $_POST['part_id'] ?? 0;
+
+    $db->beginTransaction();
+
+    try {
+        $stmt = $db->prepare("SELECT * FROM inventory_checkins WHERE id = ? AND received = 0");
+        $stmt->execute([$id]);
+        $checkin = $stmt->fetch();
+
+        if (!$checkin) {
+            $db->rollBack();
+            jsonResponse(['error' => 'Pending order not found or already received'], 404);
+        }
+
+        $quantity = (float)$checkin['quantity'];
+        $unit_cost = (float)$checkin['unit_cost'];
+
+        // Mark as received
+        $stmt = $db->prepare("UPDATE inventory_checkins SET received = 1, received_at = NOW() WHERE id = ?");
+        $stmt->execute([$id]);
+
+        // Get current stock and WAC
+        $stmt = $db->prepare("SELECT current_stock, weighted_avg_cost FROM parts WHERE id = ?");
+        $stmt->execute([$part_id]);
+        $part = $stmt->fetch();
+
+        $current_stock = (float)$part['current_stock'];
+        $current_avg_cost = (float)($part['weighted_avg_cost'] ?? 0);
+
+        // Calculate new WAC
+        $old_value = $current_stock * $current_avg_cost;
+        $new_value = $quantity * $unit_cost;
+        $total_quantity = $current_stock + $quantity;
+        $new_avg_cost = $total_quantity > 0 ? ($old_value + $new_value) / $total_quantity : 0;
+
+        // Update stock and WAC
+        $stmt = $db->prepare("UPDATE parts SET current_stock = current_stock + ?, weighted_avg_cost = ? WHERE id = ?");
+        $stmt->execute([$quantity, $new_avg_cost, $part_id]);
+
+        $db->commit();
+
+        // Trigger WC sync for all projects using this part
+        $stmt = $db->prepare("SELECT DISTINCT project_id FROM project_parts WHERE part_id = ?");
+        $stmt->execute([$part_id]);
+        $project_ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        $sync_results = [];
+        if (!empty($project_ids)) {
+            require_once 'woocommerce_sync.php';
+            foreach ($project_ids as $pid) {
+                $sync_results[] = wc_sync_project($db, (int)$pid);
+            }
+        }
+
+        jsonResponse(['success' => true, 'new_avg_cost' => $new_avg_cost, 'sync_results' => $sync_results]);
     } catch (Exception $e) {
         $db->rollBack();
         jsonResponse(['error' => $e->getMessage()], 500);

@@ -2005,12 +2005,15 @@
                         <td><strong>${p.part_number}</strong></td>
                         <td style="cursor:pointer;color:var(--accent-primary);" onclick="viewPart(${p.id})">${p.part_name}</td>
                         <td>${p.category || '-'}</td>
-                        <td class="${stockClass}">${p.current_stock}</td>
+                        <td class="${stockClass}">
+                            ${p.current_stock}
+                            ${p.pending_order_qty > 0 ? `<br><small style="color:var(--warning);font-size:0.75em;">+${p.pending_order_qty} on order</small>` : ''}
+                        </td>
                         <td>${p.min_stock_level}</td>
                         <td>
                             <button class="btn btn-small" onclick="viewPart(${p.id})">View</button>
                             <button class="btn btn-small" onclick="editPart(${p.id})">Edit</button>
-                            <button class="btn btn-small" onclick="checkinInventory(${p.id})">Check-in</button>
+                            <button class="btn btn-small" onclick="checkinInventory(${p.id})">Order Parts</button>
                             <button class="btn btn-small" onclick="copyPart(${p.id})">Copy</button>
                             <button class="btn btn-small btn-danger" onclick="deletePart(${p.id})">Delete</button>
                         </td>
@@ -3114,14 +3117,15 @@
                         ${sourcesHtml}
                         <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                            <h4>Purchase History</h4>
-                            <button class="btn btn-primary btn-small" onclick="checkinInventory(${part.id}); document.querySelector('.modal.active')?.remove();">+ Check-in Inventory</button>
+                            <h4>Orders &amp; Purchase History</h4>
+                            <button class="btn btn-primary btn-small" onclick="checkinInventory(${part.id}); document.querySelector('.modal.active')?.remove();">+ Record Order</button>
                         </div>
                         ${part.checkins && part.checkins.length > 0 ? `
                             <table class="data-table">
                                 <thead>
                                     <tr>
-                                        <th>Date</th>
+                                        <th>Order Date</th>
+                                        <th>Status</th>
                                         <th>Supplier</th>
                                         <th>Quantity</th>
                                         <th>Unit Cost</th>
@@ -3132,27 +3136,37 @@
                                 </thead>
                                 <tbody>
                                     ${part.checkins.map(c => `
-                                        <tr>
-                                            <td>${c.purchase_date}</td>
+                                        <tr style="${c.received == 0 ? 'background:#fffbeb;' : ''}">
+                                            <td>
+                                                <div>${c.purchase_date}</div>
+                                                ${c.received == 1 && c.received_at ? `<div style="font-size:0.78em;color:var(--text-dim);">Rcvd: ${c.received_at.split(' ')[0]}</div>` : ''}
+                                            </td>
+                                            <td>
+                                                ${c.received == 1
+                                                    ? '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:0.8em;background:#d1fae5;color:#065f46;font-weight:600;">Received</span>'
+                                                    : '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:0.8em;background:#fef3c7;color:#92400e;font-weight:600;">Pending</span>'
+                                                }
+                                            </td>
                                             <td>${c.supplier_name || '-'}</td>
                                             <td>${c.quantity}</td>
                                             <td>$${parseFloat(c.unit_cost).toFixed(4)}</td>
                                             <td>$${parseFloat(c.total_cost).toFixed(2)}</td>
                                             <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${c.notes || '-'}</td>
                                             <td>
+                                                ${c.received == 0 ? `<button class="btn btn-small btn-primary" onclick="markReceived(${c.id}, ${part.id})">Mark Received</button>` : ''}
                                                 <button class="btn btn-small" onclick="cloneCheckin(${c.id}, ${part.id})">Clone</button>
                                                 <button class="btn btn-small" onclick="editCheckin(${c.id}, ${part.id})">Edit</button>
-                                                <button class="btn btn-small btn-danger" onclick="deleteCheckin(${c.id}, ${part.id})">Delete</button>
+                                                <button class="btn btn-small btn-danger" onclick="deleteCheckin(${c.id}, ${part.id}, ${c.received})">Delete</button>
                                             </td>
                                         </tr>
                                     `).join('')}
                                     <tr style="font-weight: bold; background: var(--bg-light);">
-                                        <td colspan="5" style="text-align: right;">Total Spent:</td>
-                                        <td colspan="2">$${part.checkins.reduce((sum, c) => sum + parseFloat(c.total_cost), 0).toFixed(2)}</td>
+                                        <td colspan="6" style="text-align: right;">Total Spent (received):</td>
+                                        <td colspan="2">$${part.checkins.filter(c => c.received == 1).reduce((sum, c) => sum + parseFloat(c.total_cost), 0).toFixed(2)}</td>
                                     </tr>
                                 </tbody>
                             </table>
-                        ` : '<p style="color: var(--text-dim); text-align: center; padding: 2rem;">No purchase history yet. Click "Check-in Inventory" to record your first purchase.</p>'}
+                        ` : '<p style="color: var(--text-dim); text-align: center; padding: 2rem;">No orders yet. Click "+ Record Order" to log your first parts order.</p>'}
                         <div class="mt-1">
                             <button class="btn" onclick="this.closest('.modal').remove()">Close</button>
                         </div>
@@ -3314,8 +3328,11 @@
             }
         }
 
-        async function deleteCheckin(checkinId, partId) {
-            if (!confirm('Delete this check-in? This will reduce inventory by the checked-in quantity and recalculate weighted average cost.')) return;
+        async function deleteCheckin(checkinId, partId, received) {
+            const msg = (received == 1)
+                ? 'Delete this received check-in? Inventory will be reduced by that quantity and weighted average cost will be recalculated.'
+                : 'Delete this pending order? No inventory changes will be made.';
+            if (!confirm(msg)) return;
             
             const formData = new FormData();
             formData.append('action', 'delete_checkin');
@@ -3344,11 +3361,11 @@
                 }
                 
                 const modal = createModal(
-                    `Edit Check-in for ${part.part_name}`,
+                    `Edit Order for ${part.part_name}`,
                     `
                         <form id="editCheckinForm">
                             <div class="form-group">
-                                <label class="form-label">Quantity Received</label>
+                                <label class="form-label">Quantity ${checkin.received == 1 ? 'Received' : 'Ordered'}</label>
                                 <input type="number" id="editCheckinQty" class="form-input" min="1" value="${checkin.quantity}" required>
                             </div>
                             
@@ -3429,17 +3446,17 @@
 
         function checkinInventory(partId) {
             const part = parts.find(p => p.id === partId);
-            const checkinTitle = part ? `Check-in Inventory: ${part.part_name}` : 'Check-in Inventory';
+            const checkinTitle = part ? `Record Order: ${part.part_name}` : 'Record Order';
 
             const modal = createModal(
                 checkinTitle,
                 `
                     <form id="checkinForm">
                         <div class="form-group">
-                            <label class="form-label">Quantity Received</label>
+                            <label class="form-label">Quantity Ordered</label>
                             <input type="number" id="checkinQty" class="form-input" min="1" required>
                         </div>
-                        
+
                         <div style="background: #f0f9ff; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
                             <strong style="color: var(--accent-primary);">💡 Enter EITHER unit cost OR gross total:</strong>
                             <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: var(--text-secondary);">
@@ -3447,7 +3464,7 @@
                                 The system will calculate the actual cost per unit.
                             </p>
                         </div>
-                        
+
                         <div class="grid-2">
                             <div class="form-group">
                                 <label class="form-label">Unit Cost ($)</label>
@@ -3460,25 +3477,34 @@
                                 <small style="color: var(--text-secondary);">Total order cost (incl. shipping/tax)</small>
                             </div>
                         </div>
-                        
+
                         <div id="calculatedCost" style="background: #ecfdf5; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; display: none;">
                             <strong><span id="calcCostValue"></span></strong>
                         </div>
-                        
+
                         <div class="form-group">
                             <label class="form-label">Supplier Name</label>
                             <input type="text" id="checkinSupplier" class="form-input">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Purchase Date</label>
+                            <label class="form-label">Order Date</label>
                             <input type="date" id="checkinDate" class="form-input" value="${new Date().toISOString().split('T')[0]}" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Notes</label>
                             <textarea id="checkinNotes" class="form-textarea" placeholder="e.g., Mouser order #12345, included $5 shipping"></textarea>
                         </div>
+                        <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 0.75rem; margin-bottom: 1rem;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 500;">
+                                <input type="checkbox" id="checkinReceived" style="width: 16px; height: 16px; cursor: pointer;">
+                                Parts already received — update inventory now
+                            </label>
+                            <p style="margin: 0.4rem 0 0 1.5rem; font-size: 0.85rem; color: var(--text-secondary);">
+                                Leave unchecked if parts are still in transit. You can mark them received later.
+                            </p>
+                        </div>
                         <div class="flex flex-gap">
-                            <button type="submit" class="btn btn-primary">Check-in</button>
+                            <button type="submit" class="btn btn-primary">Save Order</button>
                             <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
                         </div>
                     </form>
@@ -3541,6 +3567,7 @@
                 formData.append('supplier_name', document.getElementById('checkinSupplier').value);
                 formData.append('purchase_date', document.getElementById('checkinDate').value);
                 formData.append('notes', document.getElementById('checkinNotes').value);
+                formData.append('received', document.getElementById('checkinReceived').checked ? '1' : '0');
 
                 try {
                     await fetch('api.php', { method: 'POST', body: formData });
@@ -3567,14 +3594,14 @@
                 if (!checkin) { alert('Could not load check-in data'); return; }
 
                 const modal = createModal(
-                    `Clone Check-in: ${part.part_name}`,
+                    `Clone Order: ${part.part_name}`,
                     `
                         <p style="color: var(--text-secondary); margin-bottom: 1rem;">
                             Cloned from ${checkin.purchase_date} — edit any fields before saving.
                         </p>
                         <form id="cloneCheckinForm">
                             <div class="form-group">
-                                <label class="form-label">Quantity Received</label>
+                                <label class="form-label">Quantity Ordered</label>
                                 <input type="number" id="cloneCheckinQty" class="form-input" min="1" value="${checkin.quantity}" required>
                             </div>
                             <div style="background: #f0f9ff; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
@@ -3598,15 +3625,24 @@
                                 <input type="text" id="cloneCheckinSupplier" class="form-input" value="${(checkin.supplier_name || '').replace(/"/g, '&quot;')}">
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Purchase Date</label>
+                                <label class="form-label">Order Date</label>
                                 <input type="date" id="cloneCheckinDate" class="form-input" value="${new Date().toISOString().split('T')[0]}" required>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Notes</label>
                                 <textarea id="cloneCheckinNotes" class="form-textarea">${checkin.notes || ''}</textarea>
                             </div>
+                            <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 0.75rem; margin-bottom: 1rem;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 500;">
+                                    <input type="checkbox" id="cloneCheckinReceived" style="width: 16px; height: 16px; cursor: pointer;">
+                                    Parts already received — update inventory now
+                                </label>
+                                <p style="margin: 0.4rem 0 0 1.5rem; font-size: 0.85rem; color: var(--text-secondary);">
+                                    Leave unchecked if parts are still in transit.
+                                </p>
+                            </div>
                             <div class="flex flex-gap">
-                                <button type="submit" class="btn btn-primary">Check-in</button>
+                                <button type="submit" class="btn btn-primary">Save Order</button>
                                 <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
                             </div>
                         </form>
@@ -3652,6 +3688,7 @@
                     formData.append('supplier_name', document.getElementById('cloneCheckinSupplier').value);
                     formData.append('purchase_date', document.getElementById('cloneCheckinDate').value);
                     formData.append('notes', document.getElementById('cloneCheckinNotes').value);
+                    formData.append('received', document.getElementById('cloneCheckinReceived').checked ? '1' : '0');
 
                     try {
                         await fetch('api.php', { method: 'POST', body: formData });
@@ -3664,6 +3701,30 @@
                 });
             } catch (err) {
                 alert('Error loading check-in data');
+            }
+        }
+
+        async function markReceived(checkinId, partId) {
+            if (!confirm('Mark this order as received? Inventory will be updated immediately and WooCommerce stock will be synced.')) return;
+
+            const formData = new FormData();
+            formData.append('action', 'mark_received');
+            formData.append('id', checkinId);
+            formData.append('part_id', partId);
+
+            try {
+                const response = await fetch('api.php', { method: 'POST', body: formData });
+                const result = await response.json();
+                if (result.error) {
+                    alert('Error: ' + result.error);
+                    return;
+                }
+                document.querySelector('.modal.active')?.remove();
+                viewPart(partId);
+                loadParts();
+                loadDashboard();
+            } catch (error) {
+                alert('Error marking order as received');
             }
         }
 
