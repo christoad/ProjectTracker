@@ -193,6 +193,9 @@
             from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
 
         /* Cards */
         .card {
@@ -3707,25 +3710,67 @@
         async function markReceived(checkinId, partId) {
             if (!confirm('Mark this order as received? Inventory will be updated immediately and WooCommerce stock will be synced.')) return;
 
+            // Disable the button and show a spinner while the DB update runs
+            const btn = event?.target;
+            const origText = btn?.innerHTML;
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:4px;"></span>Saving…';
+            }
+
             const formData = new FormData();
             formData.append('action', 'mark_received');
             formData.append('id', checkinId);
             formData.append('part_id', partId);
+            formData.append('skip_wc', '1');
 
             try {
                 const response = await fetch('api.php', { method: 'POST', body: formData });
                 const result = await response.json();
                 if (result.error) {
+                    if (btn) { btn.disabled = false; btn.innerHTML = origText; }
                     alert('Error: ' + result.error);
                     return;
                 }
+
+                // DB updated — close modal and refresh UI immediately
                 document.querySelector('.modal.active')?.remove();
                 viewPart(partId);
                 loadParts();
                 loadDashboard();
+
+                // Fire WC sync in the background for each affected project (no await)
+                if (result.project_ids?.length) {
+                    showWcSyncToast(result.project_ids.length);
+                    for (const pid of result.project_ids) {
+                        const fd = new FormData();
+                        fd.append('action', 'wc_sync');
+                        fd.append('project_id', pid);
+                        fetch('api.php', { method: 'POST', body: fd }).catch(() => {});
+                    }
+                }
             } catch (error) {
+                if (btn) { btn.disabled = false; btn.innerHTML = origText; }
                 alert('Error marking order as received');
             }
+        }
+
+        function showWcSyncToast(count) {
+            const existing = document.getElementById('wcSyncToast');
+            if (existing) existing.remove();
+            const toast = document.createElement('div');
+            toast.id = 'wcSyncToast';
+            toast.innerHTML = '&#x21BB; Syncing WooCommerce stock…';
+            Object.assign(toast.style, {
+                position: 'fixed', bottom: '20px', right: '20px', zIndex: '9999',
+                background: 'var(--accent-primary)', color: '#fff',
+                padding: '10px 16px', borderRadius: 'var(--radius-md)',
+                fontSize: '0.85em', fontFamily: 'var(--font-body)',
+                boxShadow: 'var(--shadow-modal)', opacity: '1',
+                transition: 'opacity 0.5s ease'
+            });
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, 4000);
         }
 
         // Order Modal Functions

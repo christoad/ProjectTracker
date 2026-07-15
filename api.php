@@ -1143,16 +1143,21 @@ if ($action === 'mark_received') {
 
         $db->commit();
 
-        // Trigger WC sync for all projects using this part
+        // Collect project IDs that need WC sync
         $stmt = $db->prepare("SELECT DISTINCT project_id FROM project_parts WHERE part_id = ?");
         $stmt->execute([$part_id]);
-        $project_ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        $project_ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+
+        // skip_wc=1: return immediately so the UI can update; caller fires WC sync in the background
+        if (!empty($_POST['skip_wc'])) {
+            jsonResponse(['success' => true, 'new_avg_cost' => $new_avg_cost, 'project_ids' => $project_ids]);
+        }
 
         $sync_results = [];
         if (!empty($project_ids)) {
             require_once 'woocommerce_sync.php';
             foreach ($project_ids as $pid) {
-                $sync_results[] = wc_sync_project($db, (int)$pid);
+                $sync_results[] = wc_sync_project($db, $pid);
             }
         }
 
