@@ -266,10 +266,10 @@ if ($action === 'get_project') {
         $project['total_expenses'] = array_sum(array_column($project['expenses'], 'cost'));
 
         // Calculate BOM costs and buildable quantity
-        $total_bom_cost = 0;
+        $fixed_bom_cost = 0;
         $min_buildable = PHP_INT_MAX;
-        $actual_inventory_value = 0;
         $variation_group_buildable = []; // keyed by variation_attribute
+        $variation_line_cost = [];       // [attr][value] => summed line_total for that option
 
         foreach ($project['parts'] as &$part) {
             // Use weighted average cost from actual inventory first, fall back to supplier pricing
@@ -281,8 +281,7 @@ if ($action === 'get_project') {
 
             if (empty($part['variation_attribute'])) {
                 // Fixed part — counts toward shared BOM cost and constrains buildable count
-                $total_bom_cost += $part['line_total'];
-                $actual_inventory_value += $part['current_stock'] * $unit_cost;
+                $fixed_bom_cost += $part['line_total'];
                 if ($part['quantity_required'] > 0) {
                     $buildable = floor($part['current_stock'] / $part['quantity_required']);
                     $min_buildable = min($min_buildable, $buildable);
@@ -291,6 +290,8 @@ if ($action === 'get_project') {
                 // Variable part — pool stock across all options of the same attribute.
                 // Any option satisfies the requirement, so sum buildable counts across all values.
                 $attr = $part['variation_attribute'];
+                $val  = $part['variation_value'];
+                $variation_line_cost[$attr][$val] = ($variation_line_cost[$attr][$val] ?? 0) + $part['line_total'];
                 if ($part['quantity_required'] > 0) {
                     $buildable = floor($part['current_stock'] / $part['quantity_required']);
                     $variation_group_buildable[$attr] = ($variation_group_buildable[$attr] ?? 0) + $buildable;
@@ -307,26 +308,59 @@ if ($action === 'get_project') {
         if ($min_buildable === PHP_INT_MAX) {
             $min_buildable = 0;
         }
-        
-        $project['total_bom_cost'] = $total_bom_cost;
-        $project['buildable_kits'] = $min_buildable;
-        // FIXED: Show actual value of all inventory in stock, not just complete kits
-        $project['total_inventory_value'] = $actual_inventory_value;
-        // Cost of the kits we can actually build (for profit calculation)
-        $buildable_kits_cost = $total_bom_cost * $min_buildable;
-        
+
+        // Realistic per-kit cost for every variation combination (Cartesian product across
+        // attributes) = fixed parts cost + that combo's specific option costs. Fixed-only BOM
+        // cost isn't realistic once a project has variations — every kit needs a variation part.
+        $combos = [[]];
+        foreach ($variation_line_cost as $attr => $values) {
+            $new_combos = [];
+            foreach ($combos as $combo) {
+                foreach (array_keys($values) as $val) {
+                    $c = $combo;
+                    $c[$attr] = $val;
+                    $new_combos[] = $c;
+                }
+            }
+            $combos = $new_combos;
+        }
+
+        $variation_costs = [];
+        foreach ($combos as $combo) {
+            if (empty($combo)) continue; // project has no variation parts
+            $cost  = $fixed_bom_cost;
+            $label = [];
+            foreach ($combo as $attr => $val) {
+                $cost += $variation_line_cost[$attr][$val] ?? 0;
+                $label[] = "$attr: $val";
+            }
+            $variation_costs[] = ['label' => implode(', ', $label), 'cost' => $cost];
+        }
+
+        // Average all-in cost per kit across every variation combo — used for BOM cost / profit /
+        // inventory value, since we don't know in advance which variation the next order needs.
+        $avg_kit_cost = !empty($variation_costs)
+            ? array_sum(array_column($variation_costs, 'cost')) / count($variation_costs)
+            : $fixed_bom_cost;
+
+        $project['fixed_bom_cost']  = $fixed_bom_cost;
+        $project['variation_costs'] = $variation_costs;
+        $project['total_bom_cost']  = $avg_kit_cost; // realistic all-in cost per kit
+        $project['buildable_kits']  = $min_buildable;
+        // Value of materials tied up in the kits we can actually build right now
+        $project['total_inventory_value'] = $avg_kit_cost * $min_buildable;
+
         // Calculate revenue and profit if retail price is set
         if ($project['retail_price'] > 0) {
             $project['projected_revenue'] = $project['retail_price'] * $min_buildable;
-            // Projected profit is based on kits we can build, not total inventory
-            $project['projected_profit'] = $project['projected_revenue'] - $buildable_kits_cost;
-            $project['profit_margin_percent'] = $total_bom_cost > 0 ? (($project['retail_price'] - $total_bom_cost) / $project['retail_price'] * 100) : 0;
+            $project['projected_profit'] = $project['projected_revenue'] - $project['total_inventory_value'];
+            $project['profit_margin_percent'] = $avg_kit_cost > 0 ? (($project['retail_price'] - $avg_kit_cost) / $project['retail_price'] * 100) : 0;
         } else {
             $project['projected_revenue'] = 0;
             $project['projected_profit'] = 0;
             $project['profit_margin_percent'] = 0;
         }
-        
+
         jsonResponse($project);
     } else {
         jsonResponse(['error' => 'Project not found'], 404);
@@ -740,6 +774,23 @@ if ($action === 'delete_project_part') {
     $stmt = $db->prepare("DELETE FROM project_parts WHERE id = ?");
     $stmt->execute([$id]);
     jsonResponse(['success' => true]);
+}
+
+// Distinct variation attribute names + their values used anywhere across all projects,
+// so the "Add Variable Part" form can suggest existing ones instead of retyping.
+if ($action === 'get_variation_options') {
+    $rows = $db->query("
+        SELECT DISTINCT variation_attribute, variation_value
+        FROM project_parts
+        WHERE variation_attribute != ''
+        ORDER BY variation_attribute, variation_value
+    ")->fetchAll();
+
+    $attributes = [];
+    foreach ($rows as $row) {
+        $attributes[$row['variation_attribute']][] = $row['variation_value'];
+    }
+    jsonResponse(['attributes' => $attributes]);
 }
 
 // Return all variation combinations for a project with buildable qty and WC variation ID mappings

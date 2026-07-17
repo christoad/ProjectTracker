@@ -1375,6 +1375,7 @@
         let currentUser = null;
         let projects = [];
         let parts = [];
+        let variationAttrOptions = {};
         let orders = [];
         let bottleneckInsightsData = [];
         let bottleneckTarget = 50;
@@ -2199,6 +2200,9 @@
 
                 // Store project data globally for export function and BOM rendering
                 window.currentProjectData = project;
+                // Kick off (don't block on) loading variation attribute/value suggestions
+                // so the "Add/Edit Variable Part" dropdowns are ready when opened.
+                ensureVariationOptionsLoaded();
                 // Reset BOM state each time a project is opened
                 bomSortState = { column: 'part_number', direction: 'asc' };
                 bomSearchQuery = '';
@@ -2250,7 +2254,7 @@
                             </div>
                             <div>
                                 <strong>Retail Price:</strong> $${parseFloat(project.retail_price || 0).toFixed(2)}<br>
-                                <strong>BOM Cost:</strong> $${parseFloat(project.total_bom_cost || 0).toFixed(2)}<br>
+                                <strong>BOM Cost${project.variation_costs && project.variation_costs.length ? ' (avg., all variations)' : ''}:</strong> $${parseFloat(project.total_bom_cost || 0).toFixed(2)}<br>
                                 <strong>Profit per Kit:</strong> <span style="color: var(--success);">$${(parseFloat(project.retail_price || 0) - parseFloat(project.total_bom_cost || 0)).toFixed(2)}</span><br>
                                 <strong>Margin:</strong> ${parseFloat(project.profit_margin_percent || 0).toFixed(1)}%
                             </div>
@@ -2263,7 +2267,7 @@
                             </div>
                             <div class="stat-card" style="border-left-color: var(--warning);">
                                 <div class="stat-value" style="color: var(--warning);">$${parseFloat(project.total_inventory_value || 0).toFixed(2)}</div>
-                                <div class="stat-label">Inventory Value</div>
+                                <div class="stat-label">Buildable Kit Value</div>
                             </div>
                             <div class="stat-card" style="border-left-color: var(--info);">
                                 <div class="stat-value" style="color: var(--info);">$${parseFloat(project.projected_revenue || 0).toFixed(2)}</div>
@@ -2408,8 +2412,17 @@
                 ? ''
                 : `<tr style="font-weight: bold; background: var(--bg-light);">
                        <td colspan="6" style="text-align: right;">Fixed Parts BOM Cost:</td>
-                       <td colspan="3">$${parseFloat(project.total_bom_cost || 0).toFixed(2)}</td>
+                       <td colspan="3">$${parseFloat(project.fixed_bom_cost ?? project.total_bom_cost ?? 0).toFixed(2)}</td>
                    </tr>`;
+
+            // Realistic per-kit cost (fixed parts + that variation's parts) for each variation combo
+            const variationCostRows = (bomDragMode || bomSearchQuery.trim() || !(project.variation_costs || []).length)
+                ? ''
+                : project.variation_costs.map(vc => `
+                    <tr style="background: var(--bg-card-alt-row);">
+                        <td colspan="6" style="text-align: right;">Kit Cost — ${escHtml(vc.label)}:</td>
+                        <td colspan="3">$${parseFloat(vc.cost).toFixed(2)}</td>
+                    </tr>`).join('');
 
             const colSpanEmpty = bomDragMode ? 10 : 9;
             const dragHandleTh = bomDragMode ? '<th style="width:28px;"></th>' : '';
@@ -2433,6 +2446,7 @@
                     <tbody>
                         ${filtered.length > 0 ? rows : `<tr><td colspan="${colSpanEmpty}" style="color: var(--text-dim); text-align: center;">No parts match your search.</td></tr>`}
                         ${totalRow}
+                        ${variationCostRows}
                     </tbody>
                 </table>
             `;
@@ -2523,8 +2537,12 @@
                 csv += `"${partNumber}","${partName}","${description}",${qtyRequired},${unitCost},${lineTotal},"${supplier}","${supplierPN}","${mfrPN}","${url}"\n`;
             });
             
-            // Add summary row
-            csv += `\n"TOTAL BOM COST",,,,,$${parseFloat(project.total_bom_cost || 0).toFixed(2)}\n`;
+            // Add summary rows
+            csv += `\n"FIXED PARTS BOM COST",,,,,$${parseFloat(project.fixed_bom_cost ?? project.total_bom_cost ?? 0).toFixed(2)}\n`;
+            (project.variation_costs || []).forEach(vc => {
+                const label = (vc.label || '').replace(/"/g, '""');
+                csv += `"KIT COST — ${label}",,,,,$${parseFloat(vc.cost).toFixed(2)}\n`;
+            });
             
             // Create blob and download
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -2551,12 +2569,35 @@
             }
         }
 
-        function addVariablePartToProject(projectId) {
-            if (parts.length === 0) {
-                loadParts().then(() => openAddVariablePartModal(projectId));
-            } else {
-                openAddVariablePartModal(projectId);
-            }
+        async function ensureVariationOptionsLoaded() {
+            try {
+                const resp = await fetch('api.php?action=get_variation_options');
+                const data = await resp.json();
+                variationAttrOptions = data.attributes || {};
+            } catch (error) {}
+            return variationAttrOptions;
+        }
+
+        // Values already used for a given attribute name (case-insensitive match);
+        // falls back to every value ever used if the attribute is blank/unrecognized.
+        function variationValueOptionsFor(attrName) {
+            const match = Object.keys(variationAttrOptions).find(
+                k => k.toLowerCase() === (attrName || '').trim().toLowerCase()
+            );
+            const values = match ? variationAttrOptions[match] : Object.values(variationAttrOptions).flat();
+            return [...new Set(values)].sort();
+        }
+
+        function refreshVarValueDatalist(attrInputId, datalistId) {
+            const attrVal = document.getElementById(attrInputId).value;
+            const dl = document.getElementById(datalistId);
+            if (dl) dl.innerHTML = variationValueOptionsFor(attrVal).map(v => `<option value="${escHtml(v)}">`).join('');
+        }
+
+        async function addVariablePartToProject(projectId) {
+            const ensureParts = parts.length === 0 ? loadParts() : Promise.resolve();
+            await Promise.all([ensureParts, ensureVariationOptionsLoaded()]);
+            openAddVariablePartModal(projectId);
         }
 
         function openAddFixedPartModal(projectId) {
@@ -2618,12 +2659,7 @@
         }
 
         function openAddVariablePartModal(projectId) {
-            // Collect existing attribute names for the datalist suggestion
-            const existingAttrs = [...new Set(
-                (window.currentProjectData?.parts || [])
-                    .filter(p => p.variation_attribute)
-                    .map(p => p.variation_attribute)
-            )];
+            const existingAttrs = Object.keys(variationAttrOptions).sort();
 
             const modal = createModal(
                 'Add Variable Part to BOM',
@@ -2642,14 +2678,18 @@
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
                             <div class="form-group">
                                 <label class="form-label">Attribute Name</label>
-                                <input type="text" id="varAttrName" class="form-input" placeholder="e.g. Connector" list="attrNameList" required>
+                                <input type="text" id="varAttrName" class="form-input" placeholder="e.g. Connector" list="attrNameList" required
+                                    oninput="refreshVarValueDatalist('varAttrName','attrValueList')">
                                 <datalist id="attrNameList">
-                                    ${existingAttrs.map(a => `<option value="${a}">`).join('')}
+                                    ${existingAttrs.map(a => `<option value="${escHtml(a)}">`).join('')}
                                 </datalist>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Attribute Value</label>
-                                <input type="text" id="varAttrValue" class="form-input" placeholder="e.g. Male pigtail" required>
+                                <input type="text" id="varAttrValue" class="form-input" placeholder="e.g. Male pigtail" list="attrValueList" required>
+                                <datalist id="attrValueList">
+                                    ${variationValueOptionsFor('').map(v => `<option value="${escHtml(v)}">`).join('')}
+                                </datalist>
                             </div>
                         </div>
                         <div class="form-group">
@@ -2696,11 +2736,18 @@
             const variationFields = isVariable ? `
                 <div class="form-group">
                     <label class="form-label">Variation Attribute <span style="color:var(--text-dim);font-weight:400;">(e.g. "Connector")</span></label>
-                    <input type="text" id="editPartAttr" class="form-input" value="${currentAttr.replace(/"/g,'&quot;')}" required>
+                    <input type="text" id="editPartAttr" class="form-input" value="${currentAttr.replace(/"/g,'&quot;')}" list="editAttrNameList" required
+                        oninput="refreshVarValueDatalist('editPartAttr','editAttrValueList')">
+                    <datalist id="editAttrNameList">
+                        ${Object.keys(variationAttrOptions).sort().map(a => `<option value="${escHtml(a)}">`).join('')}
+                    </datalist>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Variation Value <span style="color:var(--text-dim);font-weight:400;">(e.g. "Male")</span></label>
-                    <input type="text" id="editPartVal" class="form-input" value="${currentVal.replace(/"/g,'&quot;')}" required>
+                    <input type="text" id="editPartVal" class="form-input" value="${currentVal.replace(/"/g,'&quot;')}" list="editAttrValueList" required>
+                    <datalist id="editAttrValueList">
+                        ${variationValueOptionsFor(currentAttr).map(v => `<option value="${escHtml(v)}">`).join('')}
+                    </datalist>
                 </div>` : '';
 
             const modal = createModal(
