@@ -4682,15 +4682,53 @@
                     ).join('')
                 }</div>` : '';
 
+                const buildTime = (key === 'general' && r && r.build_time_estimate)
+                    ? `<div style="font-size:0.82rem;color:var(--text-dim);margin-top:4px;">⏱ Total build time: <strong style="color:var(--text-primary);">${escHtml(r.build_time_estimate)}</strong></div>`
+                    : '';
+
+                const replyVal = (r && r.admin_reply) ? r.admin_reply : '';
+
                 html += `<div style="padding:10px 0;border-bottom:1px solid var(--border-card);">
                     <div style="font-size:0.84rem;font-weight:600;color:var(--text-primary);">${escHtml(label)}</div>
                     ${detail}
+                    ${buildTime}
                     ${r && r.feedback ? `<div style="font-size:0.84rem;color:var(--text-secondary);margin-top:5px;font-style:italic;">"${escHtml(r.feedback)}"</div>` : ''}
                     ${photosHtml}
+                    <div style="margin-top:8px;">
+                        <textarea id="reply_${key}" placeholder="Reply to ${escHtml(callsign)}…"
+                            style="width:100%;min-height:50px;padding:8px 10px;border:1px solid var(--border-card);border-radius:6px;font-family:var(--font-body);font-size:0.82rem;color:var(--text-primary);background:var(--bg-card);resize:vertical;">${escHtml(replyVal)}</textarea>
+                        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;align-items:center;">
+                            <span id="replyStatus_${key}" style="font-size:0.72rem;color:var(--success);opacity:0;transition:opacity 0.3s;">✓ Saved</span>
+                            <button class="btn btn-secondary" style="font-size:0.75rem;padding:3px 10px;"
+                                onclick="saveBetaReply('${escHtml(callsign)}','${key}')">Save Reply</button>
+                        </div>
+                    </div>
                 </div>`;
             });
 
             document.getElementById('betaDetailBody').innerHTML = html;
+        }
+
+        async function saveBetaReply(callsign, stepKey) {
+            const ta = document.getElementById('reply_' + stepKey);
+            const statusEl = document.getElementById('replyStatus_' + stepKey);
+            const fd = new FormData();
+            fd.append('action', 'kh1_beta_save_reply');
+            fd.append('callsign', callsign);
+            fd.append('step_key', stepKey);
+            fd.append('reply', ta.value.trim());
+            try {
+                const resp = await fetch('api.php', { method: 'POST', body: fd });
+                const d = await resp.json();
+                if (d.success) {
+                    statusEl.style.opacity = '1';
+                    setTimeout(() => { statusEl.style.opacity = '0'; }, 2000);
+                } else {
+                    alert(d.error || 'Could not save reply.');
+                }
+            } catch(e) {
+                alert('Could not save reply. Please try again.');
+            }
         }
 
         function closeBetaDetail() {

@@ -1493,5 +1493,28 @@ if ($action === 'kh1_beta_detail') {
     jsonResponse(['responses' => $responses, 'photos' => $photos_by_step]);
 }
 
+if ($action === 'kh1_beta_save_reply') {
+    $KH1_STEPS = [
+        'packaging','step01','step02','step03','step04','step05','step06','step07',
+        'step08','step09','step10','step11','step12','step13','step14','step15',
+        'step16','step17','general'
+    ];
+    $callsign = strtoupper(preg_replace('/[^A-Za-z0-9\/]/', '', $_POST['callsign'] ?? ''));
+    $step_key = $_POST['step_key'] ?? '';
+    $reply    = substr(trim($_POST['reply'] ?? ''), 0, 2000);
+    if (strlen($callsign) < 3 || !in_array($step_key, $KH1_STEPS, true)) {
+        jsonResponse(['error' => 'Invalid callsign or step'], 400);
+    }
+    $stmt = $db->prepare("
+        INSERT INTO kh1_beta_responses (callsign, step_key, admin_reply, admin_reply_at)
+        VALUES (?, ?, ?, NOW())
+        ON DUPLICATE KEY UPDATE
+            admin_reply    = VALUES(admin_reply),
+            admin_reply_at = NOW()
+    ");
+    $stmt->execute([$callsign, $step_key, $reply]);
+    jsonResponse(['success' => true]);
+}
+
 jsonResponse(['error' => 'Invalid action'], 400);
 ?>

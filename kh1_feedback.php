@@ -30,26 +30,36 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 
 /* ── Header ── */
 header {
-  background: var(--header-bg);
+  background: linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
   color: #eef2f7;
-  padding: 14px 20px;
+  padding: 0 20px;
+  height: 56px;
   display: flex;
   align-items: center;
   gap: 14px;
   position: sticky;
   top: 0;
   z-index: 50;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.35);
+  box-shadow: 0 2px 16px rgba(15,28,63,0.22);
 }
-.header-logo {
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #64748b;
+.header-logo-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
-.header-title { font-size: 1rem; font-weight: 600; color: #f1f5f9; }
-.header-sub   { font-size: 0.78rem; color: #64748b; font-family: var(--mono); margin-top: 1px; }
+.header-logo-img {
+  height: 28px;
+  filter: brightness(0) invert(1);
+  opacity: 0.92;
+}
+.header-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255,255,255,0.25);
+  flex-shrink: 0;
+}
+.header-title { font-size: 0.9rem; font-weight: 600; color: #fff; line-height: 1.2; }
+.header-sub   { font-size: 0.68rem; color: rgba(255,255,255,0.6); font-family: var(--mono); letter-spacing: 0.5px; text-transform: uppercase; margin-top: 2px; }
 .header-callsign {
   margin-left: auto;
   background: rgba(255,255,255,0.08);
@@ -383,6 +393,43 @@ textarea.feedback-input {
   line-height: 1.5;
 }
 textarea.feedback-input:focus { border-color: var(--accent); }
+input.text-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 0.92rem;
+  color: var(--text);
+  background: #f8fbff;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input.text-input:focus { border-color: var(--accent); }
+
+/* ── Admin reply ── */
+.admin-reply-box {
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.admin-reply-heading {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 5px;
+}
+.admin-reply-text {
+  font-size: 0.88rem;
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 
 /* ── Notes ── */
 textarea.notes-input {
@@ -630,10 +677,13 @@ textarea.notes-input:focus { border-color: var(--accent); }
 <body>
 
 <header>
-  <div>
-    <div class="header-logo">KI6CR Labs</div>
-    <div class="header-title">KH1 CW Key</div>
-    <div class="header-sub">Beta Builder Feedback</div>
+  <div class="header-logo-block">
+    <img src="KI6CR-Labs-horizontal.svg" alt="KI6CR Labs" class="header-logo-img">
+    <div class="header-divider"></div>
+    <div>
+      <div class="header-title">KH1 CW Key</div>
+      <div class="header-sub">Beta Builder Feedback</div>
+    </div>
   </div>
   <div class="header-callsign" id="headerCallsign" onclick="changeCallsign()" style="display:none;">
     <strong id="headerCallsignText"></strong> <span style="font-size:0.65rem; opacity:0.6;">▾ change</span>
@@ -876,11 +926,21 @@ function renderStep(idx) {
     });
   });
 
-  // Wire up textarea
-  const ta = document.querySelector('textarea');
-  if (ta) ta.addEventListener('input', () => scheduleSave());
+  // Wire up textarea / text inputs
+  document.querySelectorAll('textarea, #buildTimeInput').forEach(el => {
+    el.addEventListener('input', () => scheduleSave());
+  });
 
   hideSaveStatus();
+}
+
+function adminReplyHtml(saved) {
+  if (!saved.admin_reply) return '';
+  return `
+    <div class="admin-reply-box">
+      <div class="admin-reply-heading">Reply from KI6CR</div>
+      <div class="admin-reply-text">${escHtml(saved.admin_reply)}</div>
+    </div>`;
 }
 
 function renderStandardStep(step, saved) {
@@ -896,6 +956,7 @@ function renderStandardStep(step, saved) {
     <span class="step-name">${escHtml(step.label)}</span>
   </div>
   <div class="step-card-body">
+    ${adminReplyHtml(saved)}
     ${pauseNote}
     <div class="rating-label-text">How did this step go?</div>
     <div class="rating-group">
@@ -937,6 +998,7 @@ function renderPackagingStep(step, saved) {
     <span class="step-name">${escHtml(step.label)}</span>
   </div>
   <div class="step-card-body">
+    ${adminReplyHtml(saved)}
     <div class="pkg-question">
       <div class="pkg-question-label">Was the outer packaging intact when it arrived?</div>
       <div class="pkg-radio-group">
@@ -966,8 +1028,9 @@ function renderPackagingStep(step, saved) {
 }
 
 function renderGeneralStep(step, saved) {
-  const feedback = saved.feedback || '';
-  const rating   = saved.rating ? parseInt(saved.rating) : 0;
+  const feedback  = saved.feedback || '';
+  const rating    = saved.rating ? parseInt(saved.rating) : 0;
+  const buildTime = saved.build_time_estimate || '';
   return `
 <div class="step-card">
   <div class="step-card-header">
@@ -975,6 +1038,7 @@ function renderGeneralStep(step, saved) {
     <span class="step-name">${escHtml(step.label)}</span>
   </div>
   <div class="step-card-body">
+    ${adminReplyHtml(saved)}
     <div class="rating-label-text">Overall build experience?</div>
     <div class="rating-group">
       <button class="rating-btn ${rating===1?'sel-1':''}" data-rating="1">
@@ -995,6 +1059,8 @@ function renderGeneralStep(step, saved) {
       <li>What did you like most?</li>
     </ul>
     <textarea class="feedback-input" id="feedbackText" placeholder="Any and all thoughts welcome…" style="min-height:130px;">${escHtml(feedback)}</textarea>
+    <div class="feedback-label" style="margin-top:18px;">Total build time <span class="optional">(approximate — guesses are fine!)</span></div>
+    <input type="text" class="text-input" id="buildTimeInput" placeholder="e.g. 6 hours, or 3 evenings" value="${escHtml(buildTime)}">
     ${photoSectionHtml(step.key)}
   </div>
 </div>`;
@@ -1020,20 +1086,31 @@ function collectCurrentData() {
     const selBtn = document.querySelector('.rating-btn.sel-1, .rating-btn.sel-2, .rating-btn.sel-3');
     data.rating   = selBtn ? parseInt(selBtn.dataset.rating) : null;
     data.feedback = (document.getElementById('feedbackText')?.value || '').trim();
+    if (step.type === 'general') {
+      data.build_time_estimate = (document.getElementById('buildTimeInput')?.value || '').trim();
+    }
   }
   return data;
 }
 
-function saveCurrentStep() {
-  const data = collectCurrentData();
-  // Update local cache
-  responses[data.step_key] = {
+function updateLocalCache(data) {
+  // Merge (not replace) so fields loaded from the server but not part of
+  // this step's form — like admin_reply — aren't wiped out locally.
+  responses[data.step_key] = Object.assign({}, responses[data.step_key], {
     rating: data.rating,
     feedback: data.feedback,
     packaging_intact: data.packaging_intact ?? null,
     tools_in_box: data.tools_in_box ?? null,
     parts_undamaged: data.parts_undamaged ?? null,
-  };
+  });
+  if (data.build_time_estimate !== undefined) {
+    responses[data.step_key].build_time_estimate = data.build_time_estimate;
+  }
+}
+
+function saveCurrentStep() {
+  const data = collectCurrentData();
+  updateLocalCache(data);
   // Fire and forget to server
   sendSave(data);
 }
@@ -1053,13 +1130,7 @@ async function sendSave(data) {
 
 function autoSave() {
   const data = collectCurrentData();
-  responses[data.step_key] = {
-    rating: data.rating,
-    feedback: data.feedback,
-    packaging_intact: data.packaging_intact ?? null,
-    tools_in_box: data.tools_in_box ?? null,
-    parts_undamaged: data.parts_undamaged ?? null,
-  };
+  updateLocalCache(data);
   sendSave(data);
 }
 

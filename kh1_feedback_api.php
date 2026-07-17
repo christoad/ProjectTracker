@@ -46,20 +46,23 @@ if ($action === 'save_response') {
     $pkg_intact       = isset($_POST['packaging_intact'])  ? (int)(bool)$_POST['packaging_intact']  : null;
     $tools_in_box     = isset($_POST['tools_in_box'])      ? (int)(bool)$_POST['tools_in_box']      : null;
     $parts_undamaged  = isset($_POST['parts_undamaged'])   ? (int)(bool)$_POST['parts_undamaged']   : null;
+    $build_time       = isset($_POST['build_time_estimate'])
+                        ? substr(trim($_POST['build_time_estimate']), 0, 200) : null;
 
     $stmt = $db->prepare("
         INSERT INTO kh1_beta_responses
-            (callsign, step_key, rating, feedback, packaging_intact, tools_in_box, parts_undamaged)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (callsign, step_key, rating, feedback, packaging_intact, tools_in_box, parts_undamaged, build_time_estimate)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
-            rating           = VALUES(rating),
-            feedback         = VALUES(feedback),
-            packaging_intact = VALUES(packaging_intact),
-            tools_in_box     = VALUES(tools_in_box),
-            parts_undamaged  = VALUES(parts_undamaged),
-            updated_at       = NOW()
+            rating               = VALUES(rating),
+            feedback             = VALUES(feedback),
+            packaging_intact     = VALUES(packaging_intact),
+            tools_in_box         = VALUES(tools_in_box),
+            parts_undamaged      = VALUES(parts_undamaged),
+            build_time_estimate  = VALUES(build_time_estimate),
+            updated_at           = NOW()
     ");
-    $stmt->execute([$callsign, $step_key, $rating, $feedback, $pkg_intact, $tools_in_box, $parts_undamaged]);
+    $stmt->execute([$callsign, $step_key, $rating, $feedback, $pkg_intact, $tools_in_box, $parts_undamaged, $build_time]);
     jsonResponse(['success' => true]);
 }
 
