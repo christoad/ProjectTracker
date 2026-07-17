@@ -1003,7 +1003,7 @@
                     <div class="card-header">
                         <h2 class="card-title">Projects / Kits</h2>
                         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-                            <button class="btn btn-small" onclick="wcCheckStatus()" style="background:var(--info);color:white;border-color:var(--info);">Check WC Status</button>
+                            <button class="btn btn-small" id="wcCheckStatusBtn" onclick="wcCheckStatus()" style="background:var(--info);color:white;border-color:var(--info);">Check WC Status</button>
                             <button class="btn btn-small" onclick="wcSyncAll()" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync All to WooCommerce</button>
                             <button class="btn btn-small" onclick="wcViewLog()" style="background:var(--bg-light);border-color:var(--border-card);">Sync Log</button>
                             <button class="btn btn-primary" onclick="openProjectModal()">+ New Project</button>
@@ -1749,7 +1749,10 @@
         }
 
         async function wcCheckStatus() {
-            wcShowResult('<em>Fetching WooCommerce stock status…</em>');
+            const btn = document.getElementById('wcCheckStatusBtn');
+            const spinner = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:4px;"></span>';
+            if (btn) { btn.disabled = true; btn.innerHTML = spinner + 'Checking…'; }
+            wcShowResult(spinner.replace('#fff', 'var(--info)').replace('rgba(255,255,255,0.4)', 'rgba(0,0,0,0.15)') + '<em>Fetching WooCommerce stock status — this checks every variation live, so it can take 20-40 seconds…</em>');
             try {
                 const r = await fetch(`${WC_WEBHOOK}?action=wc_status`);
                 const data = await r.json();
@@ -1810,6 +1813,8 @@
                     ${anyMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some quantities are out of sync — use the Sync buttons above, or Sync All.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All quantities match WooCommerce.</div>'}`);
             } catch(e) {
                 wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Check WC Status'; }
             }
         }
 

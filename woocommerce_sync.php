@@ -171,6 +171,64 @@ function wc_fetch_variation_stock_live(int $wc_product_id, int $wc_variation_id)
     return isset($data['stock_quantity']) ? (int) $data['stock_quantity'] : null;
 }
 
+/**
+ * Fetch stock_quantity for many products/variations via curl_multi, in small
+ * concurrent batches. Requests one-at-a-time to the WooCommerce REST API is what
+ * made "Check WC Status" take 30-40+ seconds with a couple dozen variations mapped.
+ * Firing ALL of them fully in parallel trips WooCommerce/host rate-limiting though
+ * (observed requests silently failing above ~20 at once), so we cap concurrency
+ * and go in small waves — still far faster than one-at-a-time, without the drops.
+ *
+ * $requests: [ key => ['product_id' => int, 'variation_id' => int|null], ... ]
+ * Returns:   [ key => int|null ]
+ */
+function wc_fetch_stock_batch(array $requests): array {
+    $results = array_fill_keys(array_keys($requests), null);
+    if (empty($requests)) return $results;
+
+    $cfg = wc_get_config();
+    if (!$cfg) return $results;
+
+    $CONCURRENCY = 5;
+    foreach (array_chunk($requests, $CONCURRENCY, true) as $chunk) {
+        $mh = curl_multi_init();
+        $handles = [];
+        foreach ($chunk as $key => $r) {
+            $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . (int) $r['product_id'];
+            if (!empty($r['variation_id'])) {
+                $url .= '/variations/' . (int) $r['variation_id'];
+            }
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+                CURLOPT_TIMEOUT        => 15,
+            ]);
+            curl_multi_add_handle($mh, $ch);
+            $handles[$key] = $ch;
+        }
+
+        $running = null;
+        do {
+            $status = curl_multi_exec($mh, $running);
+            if ($running) curl_multi_select($mh);
+        } while ($running > 0 && $status === CURLM_OK);
+
+        foreach ($handles as $key => $ch) {
+            $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            if ($http_code === 200) {
+                $data = json_decode(curl_multi_getcontent($ch), true);
+                $results[$key] = isset($data['stock_quantity']) ? (int) $data['stock_quantity'] : null;
+            }
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+        }
+        curl_multi_close($mh);
+    }
+
+    return $results;
+}
+
 // ── WooCommerce push ──────────────────────────────────────────────────────────
 
 /** Push stock to a simple (non-variable) WooCommerce product. */

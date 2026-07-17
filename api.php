@@ -477,8 +477,13 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
             WHERE woocommerce_product_id IS NOT NULL AND status NOT IN ('archived', 'trashed')
             ORDER BY project_name
         ");
-        $out = [];
-        foreach ($stmt->fetchAll() as $p) {
+        $projects = $stmt->fetchAll();
+
+        // Pass 1: gather tracker-side data and every live WC lookup we'll need,
+        // but don't hit the network yet — fetch them all in one parallel batch below.
+        $prepped  = [];
+        $requests = [];
+        foreach ($projects as $p) {
             $wc_product_id = (int) $p['woocommerce_product_id'];
 
             $vstmt = $db->prepare("
@@ -494,16 +499,16 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
                 foreach ($mappings as $m) {
                     // Pass combo_key as raw string — wc_calculate_variation_qty parses internally
                     $tracker_qty = wc_calculate_variation_qty($db, $p['id'], $m['combo_key']);
-                    $wc_qty      = wc_fetch_variation_stock_live($wc_product_id, (int) $m['wc_variation_id']);
+                    $reqKey = 'v' . $p['id'] . '_' . $m['wc_variation_id'];
+                    $requests[$reqKey] = ['product_id' => $wc_product_id, 'variation_id' => (int) $m['wc_variation_id']];
                     $variations[] = [
                         'combo'        => $m['combo_key'],
                         'variation_id' => (int) $m['wc_variation_id'],
                         'tracker_qty'  => $tracker_qty,
-                        'wc_qty'       => $wc_qty,
-                        'match'        => $wc_qty !== null && $wc_qty === $tracker_qty,
+                        'req_key'      => $reqKey,
                     ];
                 }
-                $out[] = [
+                $prepped[] = [
                     'project_id'     => $p['id'],
                     'project_name'   => $p['project_name'],
                     'wc_product_id'  => $wc_product_id,
@@ -513,17 +518,39 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
                 ];
             } else {
                 $tracker_qty = wc_calculate_available_qty($db, $p['id']);
-                $wc_qty      = wc_fetch_product_stock($wc_product_id);
-                $out[] = [
+                $reqKey = 'p' . $p['id'];
+                $requests[$reqKey] = ['product_id' => $wc_product_id, 'variation_id' => null];
+                $prepped[] = [
                     'project_id'               => $p['id'],
                     'project_name'             => $p['project_name'],
                     'wc_product_id'            => $wc_product_id,
                     'calculated_available_qty' => $tracker_qty,
-                    'wc_stock_qty'             => $wc_qty,
-                    'match'                    => $wc_qty !== null && $wc_qty === $tracker_qty,
+                    'req_key'                  => $reqKey,
                     'project_status'           => $p['status'],
                 ];
             }
+        }
+
+        $wcStock = wc_fetch_stock_batch($requests);
+
+        // Pass 2: stitch the live results back onto the prepped rows.
+        $out = [];
+        foreach ($prepped as $row) {
+            if (!empty($row['variable'])) {
+                foreach ($row['variations'] as &$v) {
+                    $wc_qty = $wcStock[$v['req_key']] ?? null;
+                    $v['wc_qty'] = $wc_qty;
+                    $v['match']  = $wc_qty !== null && $wc_qty === $v['tracker_qty'];
+                    unset($v['req_key']);
+                }
+                unset($v);
+            } else {
+                $wc_qty = $wcStock[$row['req_key']] ?? null;
+                $row['wc_stock_qty'] = $wc_qty;
+                $row['match']        = $wc_qty !== null && $wc_qty === $row['calculated_available_qty'];
+            }
+            unset($row['req_key']);
+            $out[] = $row;
         }
         jsonResponse($out);
     }
