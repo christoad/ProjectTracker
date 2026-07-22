@@ -697,6 +697,8 @@ textarea.notes-input:focus { border-color: var(--accent); }
     <div class="updates-bubble-heading">Currently in development</div>
     <ul>
       <li>Photos of every part in the kit for easy identification</li>
+      <li>Adding more detailed photographs for steps 16 and 17</li>
+      <li>Clarifying details for step 17, considering separating into two separate steps</li>
     </ul>
   </div>
 
