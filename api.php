@@ -50,9 +50,26 @@ if ($action === 'get_dashboard') {
     $stats = [
         'total_projects' => $db->query("SELECT COUNT(*) FROM projects WHERE status = 'active'")->fetchColumn(),
         'total_parts' => $db->query("SELECT COUNT(*) FROM parts")->fetchColumn(),
-        'low_stock_count' => $db->query("SELECT COUNT(*) FROM parts WHERE current_stock <= min_stock_level")->fetchColumn(),
+        'low_stock_count' => $db->query("
+            SELECT COUNT(*) FROM parts p
+            WHERE p.current_stock <= p.min_stock_level
+              AND EXISTS (
+                  SELECT 1 FROM project_parts pp
+                  JOIN projects proj ON proj.id = pp.project_id
+                  WHERE pp.part_id = p.id AND proj.status = 'active'
+              )
+        ")->fetchColumn(),
         'pending_orders' => $db->query("SELECT COUNT(*) FROM orders WHERE status = 'pending'")->fetchColumn(),
-        'low_stock_parts' => $db->query("SELECT * FROM parts WHERE current_stock <= min_stock_level ORDER BY current_stock ASC LIMIT 10")->fetchAll(),
+        'low_stock_parts' => $db->query("
+            SELECT * FROM parts p
+            WHERE p.current_stock <= p.min_stock_level
+              AND EXISTS (
+                  SELECT 1 FROM project_parts pp
+                  JOIN projects proj ON proj.id = pp.project_id
+                  WHERE pp.part_id = p.id AND proj.status = 'active'
+              )
+            ORDER BY p.current_stock ASC LIMIT 10
+        ")->fetchAll(),
         'recent_orders' => $db->query("SELECT o.*, p.project_name FROM orders o JOIN projects p ON o.project_id = p.id ORDER BY o.created_at DESC LIMIT 5")->fetchAll(),
     ];
 
@@ -65,6 +82,7 @@ if ($action === 'get_dashboard') {
             proj.retail_price,
             pp.quantity_required,
             pp.variation_attribute,
+            pp.variation_value,
             p.id             AS part_id,
             p.part_name,
             p.part_number,
@@ -95,87 +113,67 @@ if ($action === 'get_dashboard') {
 
     $bottleneck_insights = [];
     foreach ($by_project as $project_id => $project) {
-        // Only fixed parts constrain the buildable count
-        $fixed = array_values(array_filter(
-            $project['parts'],
-            fn($p) => empty($p['variation_attribute']) && $p['quantity_required'] > 0
-        ));
-        if (empty($fixed)) continue;
+        $rows = array_values(array_filter($project['parts'], fn($p) => $p['quantity_required'] > 0));
+        if (empty($rows)) continue;
 
-        // Annotate each part with its buildable count and unit cost
-        foreach ($fixed as &$fp) {
-            $fp['buildable']  = (int) floor($fp['current_stock'] / $fp['quantity_required']);
-            $fp['unit_cost']  = $fp['weighted_avg_cost'] > 0
-                ? (float) $fp['weighted_avg_cost']
-                : (float) ($fp['preferred_cost'] ?? $fp['lowest_cost'] ?? 0);
+        // Annotate every BOM row (fixed AND variable) with its own buildable count and unit cost
+        foreach ($rows as &$r) {
+            $r['buildable']  = (int) floor($r['current_stock'] / $r['quantity_required']);
+            $r['unit_cost']  = $r['weighted_avg_cost'] > 0
+                ? (float) $r['weighted_avg_cost']
+                : (float) ($r['preferred_cost'] ?? $r['lowest_cost'] ?? 0);
         }
-        unset($fp);
+        unset($r);
 
-        // Sort ascending so index 0 = current bottleneck
-        usort($fixed, fn($a, $b) => $a['buildable'] - $b['buildable']);
+        $fixed    = array_values(array_filter($rows, fn($r) => empty($r['variation_attribute'])));
+        $variable = array_values(array_filter($rows, fn($r) => !empty($r['variation_attribute'])));
 
-        $min_buildable = $fixed[0]['buildable'];
+        $fixed_min = PHP_INT_MAX;
+        foreach ($fixed as $fp) $fixed_min = min($fixed_min, $fp['buildable']);
 
-        // Second-lowest unique buildable value = what we'd reach after clearing the bottleneck
-        $next_level = null;
-        foreach ($fixed as $fp) {
-            if ($fp['buildable'] > $min_buildable) { $next_level = $fp['buildable']; break; }
+        // Group variable rows into their specific variation combos (e.g. "Color: Blue") —
+        // a combo's buildable count is constrained by shared fixed parts PLUS that combo's
+        // own parts only. Pooling across different combo values (as the old code did) is
+        // meaningless since a customer picks exactly one value, not all of them.
+        $combos = [];
+        foreach ($variable as $vr) {
+            $combos[$vr['variation_attribute'] . '::' . $vr['variation_value']][] = $vr;
         }
-
-        // If all parts are equally constraining, target +5 kits as the horizon
-        $target       = $next_level ?? ($min_buildable + 5);
-        $kits_unlocked = $target - $min_buildable;
-
-        // Collect bottleneck parts (those sitting at the minimum)
-        $bottleneck_parts = [];
-        $total_order_cost = 0;
-        foreach ($fixed as $fp) {
-            if ($fp['buildable'] !== $min_buildable) break; // sorted — safe to break
-            $units_needed = max(0, ($target * $fp['quantity_required']) - $fp['current_stock']);
-            $cost         = $fp['unit_cost'] > 0 ? round($units_needed * $fp['unit_cost'], 2) : null;
-            if ($cost !== null) $total_order_cost += $cost;
-            $bottleneck_parts[] = [
-                'part_name'         => $fp['part_name'],
-                'part_number'       => $fp['part_number'],
-                'current_stock'     => $fp['current_stock'],
-                'quantity_required' => $fp['quantity_required'],
-                'units_to_order'    => $units_needed,
-                'estimated_cost'    => $cost,
-            ];
+        $combo_mins = [];
+        foreach ($combos as $comboRows) {
+            $m = $fixed_min;
+            foreach ($comboRows as $r) $m = min($m, $r['buildable']);
+            $combo_mins[] = $m;
         }
 
-        // Name of the part that becomes the NEW bottleneck after ordering current ones
-        $next_constraint_name = null;
-        if ($next_level !== null) {
-            foreach ($fixed as $fp) {
-                if ($fp['buildable'] === $next_level) {
-                    $next_constraint_name = $fp['part_name'];
-                    break;
-                }
-            }
-        }
+        // Current bottleneck = the worst-off SKU (or the shared fixed parts if no variations)
+        $current_buildable = empty($combo_mins) ? $fixed_min : min($combo_mins);
+        if ($current_buildable === PHP_INT_MAX) continue;
 
-        $max_buildable = $fixed[count($fixed) - 1]['buildable']; // sorted ascending
+        $all_parts = array_map(fn($r) => [
+            'part_id'           => (int) $r['part_id'],
+            'part_name'         => $r['part_name'],
+            'part_number'       => $r['part_number'],
+            'current_stock'     => (int) $r['current_stock'],
+            'quantity_required' => (int) $r['quantity_required'],
+            'buildable'         => (int) $r['buildable'],
+            'unit_cost'         => (float) $r['unit_cost'],
+            'variation'         => empty($r['variation_attribute']) ? null : ($r['variation_attribute'] . ': ' . $r['variation_value']),
+        ], $rows);
 
-        $all_fixed_parts = array_map(fn($fp) => [
-            'part_id'           => (int) $fp['part_id'],
-            'part_name'         => $fp['part_name'],
-            'part_number'       => $fp['part_number'],
-            'current_stock'     => (int) $fp['current_stock'],
-            'quantity_required' => (int) $fp['quantity_required'],
-            'buildable'         => (int) $fp['buildable'],
-            'unit_cost'         => (float) $fp['unit_cost'],
-        ], $fixed);
+        // Sort ascending so the true bottleneck part(s) surface first
+        usort($all_parts, fn($a, $b) => $a['buildable'] - $b['buildable']);
+
+        $max_buildable = 0;
+        foreach ($all_parts as $p) $max_buildable = max($max_buildable, $p['buildable']);
 
         $bottleneck_insights[] = [
-            'project_id'           => $project_id,
-            'project_name'         => $project['project_name'],
-            'retail_price'         => $project['retail_price'],
-            'current_buildable'    => $min_buildable,
-            'max_buildable'        => $max_buildable,
-            'bottleneck_parts'     => $bottleneck_parts,
-            'all_fixed_parts'      => $all_fixed_parts,
-            'total_fixed_parts'    => count($fixed),
+            'project_id'        => $project_id,
+            'project_name'      => $project['project_name'],
+            'retail_price'      => $project['retail_price'],
+            'current_buildable' => $current_buildable,
+            'max_buildable'     => $max_buildable,
+            'all_fixed_parts'   => $all_parts,
         ];
     }
 

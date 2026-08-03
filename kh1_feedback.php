@@ -699,6 +699,8 @@ textarea.notes-input:focus { border-color: var(--accent); }
       <li>Photos of every part in the kit for easy identification</li>
       <li>Adding more detailed photographs for steps 16 and 17</li>
       <li>Clarifying details for step 17, considering separating into two separate steps</li>
+      <li>An assembly video walking through the full build</li>
+      <li>More photos of the final steps soldering to the PCB breakout board</li>
     </ul>
   </div>
 

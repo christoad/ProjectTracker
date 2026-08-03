@@ -1004,7 +1004,7 @@
                         <h2 class="card-title">Projects / Kits</h2>
                         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
                             <button class="btn btn-small" id="wcCheckStatusBtn" onclick="wcCheckStatus()" style="background:var(--info);color:white;border-color:var(--info);">Check WC Status</button>
-                            <button class="btn btn-small" onclick="wcSyncAll()" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync All to WooCommerce</button>
+                            <button class="btn btn-small" id="wcSyncAllBtn" onclick="wcSyncAll()" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync All to WooCommerce</button>
                             <button class="btn btn-small" onclick="wcViewLog()" style="background:var(--bg-light);border-color:var(--border-card);">Sync Log</button>
                             <button class="btn btn-primary" onclick="openProjectModal()">+ New Project</button>
                         </div>
@@ -1607,6 +1607,7 @@
                             onclick="viewPart(${part.part_id})"
                             onmouseover="this.style.color='var(--accent-primary)'"
                             onmouseout="this.style.color='${isBottleneck ? 'var(--danger)' : 'var(--text-primary)'}'">${part.part_name}</td>
+                        <td style="padding:5px 8px;font-size:0.78rem;color:var(--text-secondary);">${part.variation ? part.variation : '<span style="color:var(--text-dim);">— shared —</span>'}</td>
                         <td style="padding:5px 8px;font-family:var(--font-mono);font-size:0.78rem;color:var(--text-dim);">${part.part_number}</td>
                         <td style="padding:5px 8px;text-align:center;font-family:var(--font-mono);font-size:0.82rem;color:var(--text-secondary);">${part.quantity_required}/kit</td>
                         <td style="padding:5px 8px;text-align:right;font-family:var(--font-mono);font-size:0.82rem;">${part.current_stock.toLocaleString()}</td>
@@ -1646,10 +1647,11 @@
                     </div>
                     <div id="bt-body-${proj.project_id}" style="display:${isExpanded ? '' : 'none'};">
                         <div style="overflow-x:auto;padding:0 16px;">
-                        <table style="width:100%;border-collapse:collapse;margin-bottom:14px;min-width:520px;">
+                        <table style="width:100%;border-collapse:collapse;margin-bottom:14px;min-width:640px;">
                             <thead>
                                 <tr style="border-bottom:1px solid var(--bg-light);">
                                     <th style="padding:3px 8px;text-align:left;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">Part</th>
+                                    <th style="padding:3px 8px;text-align:left;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">Variation</th>
                                     <th style="padding:3px 8px;text-align:left;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">Part #</th>
                                     <th style="padding:3px 8px;text-align:center;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">Qty/Kit</th>
                                     <th style="padding:3px 8px;text-align:right;font-size:0.72rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:.05em;">In Stock</th>
@@ -1714,7 +1716,10 @@
         }
 
         async function wcSyncAll() {
-            wcShowResult('<em>Syncing all projects to WooCommerce…</em>');
+            const btn = document.getElementById('wcSyncAllBtn');
+            const spinner = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:4px;"></span>';
+            if (btn) { btn.disabled = true; btn.innerHTML = spinner + 'Syncing…'; }
+            wcShowResult(spinner.replace('#fff', 'var(--accent-secondary)').replace('rgba(255,255,255,0.4)', 'rgba(0,0,0,0.15)') + '<em>Syncing all projects to WooCommerce — this pushes live stock updates one project at a time, so it can take a while…</em>');
             try {
                 const r = await fetch(`${WC_WEBHOOK}?action=wc_sync_all`);
                 const data = await r.json();
@@ -1745,6 +1750,9 @@
                     </table>`);
             } catch(e) {
                 wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Sync All to WooCommerce'; }
+                loadProjects();
             }
         }
 
@@ -1858,6 +1866,7 @@
                     btn.setAttribute('style', 'background:var(--success);color:white;border-color:var(--success);');
                     setTimeout(() => resetBtn(origText, origStyle), 4000);
                 }
+                if (!isError) loadProjects();
             } catch(e) {
                 if (btn) {
                     btn.textContent = '✗ Error';
