@@ -40,19 +40,45 @@ try {
     $inventoryCost = $stmt->fetch()['total_inventory_cost'] ?? 0;
     
     // 2. INVENTORY VALUE (Potential Revenue - unrealized)
-    // Sum of all parts in all active projects * retail price
-    $stmt = $db->query("
-        SELECT 
-            SUM(p.current_stock / NULLIF(pp.quantity_required, 0) * pr.retail_price) as potential_revenue
-        FROM parts p
-        INNER JOIN project_parts pp ON p.id = pp.part_id
-        INNER JOIN projects pr ON pp.project_id = pr.id
-        WHERE pr.status = 'active'
-        GROUP BY p.id
-    ");
+    // Buildable kit count per active project (bottleneck across BOM parts, same
+    // logic as wc_calculate_available_qty / wc_calculate_variation_qty) * retail
+    // price. Summing each BOM part's stock independently instead massively
+    // overstates this, since a kit with N parts would get counted ~N times over.
+    $activeProjects = $db->query("SELECT id, retail_price FROM projects WHERE status = 'active'")->fetchAll();
     $unrealizedRevenue = 0;
-    while ($row = $stmt->fetch()) {
-        $unrealizedRevenue += $row['potential_revenue'] ?? 0;
+    foreach ($activeProjects as $proj) {
+        $stmt = $db->prepare("
+            SELECT DISTINCT variation_attribute, variation_value
+            FROM project_parts WHERE project_id = ? AND variation_attribute != ''
+        ");
+        $stmt->execute([$proj['id']]);
+        $attributes = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $attributes[$row['variation_attribute']][] = $row['variation_value'];
+        }
+
+        if (empty($attributes)) {
+            $buildable = wc_calculate_available_qty($db, $proj['id']);
+        } else {
+            // Variable kit — sum buildable across every combination of variation
+            // values, since each combo is an independently sellable variant.
+            $combos = [[]];
+            foreach ($attributes as $attr => $values) {
+                $new_combos = [];
+                foreach ($combos as $combo) {
+                    foreach ($values as $val) {
+                        $new_combos[] = $combo + [$attr => $val];
+                    }
+                }
+                $combos = $new_combos;
+            }
+            $buildable = 0;
+            foreach ($combos as $combo) {
+                $buildable += wc_calculate_variation_qty($db, $proj['id'], wc_build_combo_key($combo));
+            }
+        }
+
+        $unrealizedRevenue += $buildable * $proj['retail_price'];
     }
     
     // 3. ORDERS - REVENUE (sum of line items actually sold)
