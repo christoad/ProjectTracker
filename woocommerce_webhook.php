@@ -158,154 +158,26 @@ if (!$order || !isset($order['id'])) {
     exit;
 }
 
-$wc_order_id = (int) $order['id'];
-$wc_status   = $order['status'] ?? '';
+// wc_upsert_order() upserts the parent order row + one order_items row per line
+// item (keyed by wc_line_item_id, so two line items for the same project — e.g.
+// two different color variants bought together — both get captured and both
+// deduct, instead of the second one being silently skipped).
+$result = wc_upsert_order($db, $order, true);
 
-// Deduct on: processing, on-hold (NOT completed — Shippo marks orders completed
-// when a label is printed, which would trigger a second spurious deduction).
-$should_deduct  = in_array($wc_status, ['processing', 'on-hold']);
-$should_restore = in_array($wc_status, ['cancelled', 'refunded']);
-
-if (!$should_deduct && !$should_restore) {
-    echo json_encode([
-        'skipped'     => true,
-        'wc_order_id' => $wc_order_id,
-        'reason'      => "Status '$wc_status' requires no inventory action",
-    ]);
+if (isset($result['skipped']) || isset($result['error'])) {
+    echo json_encode($result);
     exit;
-}
-
-$affected_projects = [];
-$item_log          = [];
-
-foreach (($order['line_items'] ?? []) as $item) {
-    $wc_product_id   = (int) ($item['product_id'] ?? 0);
-    $wc_variation_id = (int) ($item['variation_id'] ?? 0);
-    if (!$wc_product_id) continue;
-
-    // Find the tracker project mapped to this WooCommerce product
-    $stmt = $db->prepare("SELECT id, project_name FROM projects WHERE woocommerce_product_id = ?");
-    $stmt->execute([$wc_product_id]);
-    $project = $stmt->fetch();
-    if (!$project) continue;
-
-    // Resolve which variation combo was ordered (null for simple products)
-    $combo_key = null;
-    if ($wc_variation_id) {
-        $stmt = $db->prepare("
-            SELECT combo_key FROM project_variation_mappings
-            WHERE project_id = ? AND wc_variation_id = ?
-        ");
-        $stmt->execute([$project['id'], $wc_variation_id]);
-        $mapping = $stmt->fetch();
-        if ($mapping) {
-            $combo_key = $mapping['combo_key'];
-        }
-    }
-
-    $order_qty = max(1, (int) ($item['quantity'] ?? 1));
-
-    // Transaction + FOR UPDATE: prevents double-deduction from near-simultaneous
-    // order.created + order.updated webhooks (both arrive with status=processing).
-    // The second request blocks on the lock, then sees inventory_deducted=1 and skips.
-    $db->beginTransaction();
-    try {
-        $stmt = $db->prepare("
-            SELECT id, inventory_deducted, variation_combo_key
-            FROM orders
-            WHERE order_number = ? AND project_id = ?
-            FOR UPDATE
-        ");
-        $stmt->execute(['WC-' . $wc_order_id, $project['id']]);
-        $existing = $stmt->fetch();
-
-        if ($should_deduct) {
-            if ($existing && $existing['inventory_deducted']) {
-                $item_log[] = ['skipped' => true, 'reason' => 'Already deducted for this order'];
-                $db->commit();
-                continue;
-            }
-
-            // Pass combo_key as raw string — wc_deduct_bom_inventory parses it internally
-            $deductions = wc_deduct_bom_inventory($db, $project['id'], $order_qty, $combo_key);
-            $item_log[] = [
-                'project'    => $project['project_name'],
-                'combo_key'  => $combo_key,
-                'deductions' => $deductions,
-            ];
-
-            $customer = trim(($order['billing']['first_name'] ?? '') . ' ' . ($order['billing']['last_name'] ?? ''));
-
-            if (!$existing) {
-                $db->prepare("
-                    INSERT INTO orders
-                        (order_number, project_id, customer_name, customer_email,
-                         quantity, price_paid, order_date, status, notes, source,
-                         inventory_deducted, variation_combo_key)
-                    VALUES (?, ?, ?, ?, ?, ?, NOW(), 'paid', ?, 'woocommerce', 1, ?)
-                ")->execute([
-                    'WC-' . $wc_order_id,
-                    $project['id'],
-                    $customer ?: 'WooCommerce Customer',
-                    $order['billing']['email'] ?? '',
-                    $order_qty,
-                    $item['total'] ?? '0',
-                    "WooCommerce order #{$wc_order_id}",
-                    $combo_key,
-                ]);
-            } else {
-                $db->prepare("
-                    UPDATE orders SET inventory_deducted = 1, variation_combo_key = ? WHERE id = ?
-                ")->execute([$combo_key, $existing['id']]);
-            }
-
-            $affected_projects[] = $project['id'];
-
-        } elseif ($should_restore) {
-            if (!$existing || !$existing['inventory_deducted']) {
-                $item_log[] = ['skipped' => true, 'reason' => 'No prior deduction found for this order'];
-                $db->commit();
-                continue;
-            }
-
-            // Use the combo_key stored at deduction time — ensures we restore the right parts
-            $restore_combo_key = $existing['variation_combo_key'];
-
-            // Pass combo_key as raw string — wc_restore_bom_inventory parses it internally
-            $restorations = wc_restore_bom_inventory($db, $project['id'], $order_qty, $restore_combo_key);
-            $item_log[] = [
-                'project'      => $project['project_name'],
-                'combo_key'    => $restore_combo_key,
-                'restorations' => $restorations,
-            ];
-
-            $db->prepare("UPDATE orders SET status = 'cancelled', inventory_deducted = 0 WHERE id = ?")
-               ->execute([$existing['id']]);
-
-            $affected_projects[] = $project['id'];
-        }
-
-        $db->commit();
-
-    } catch (Exception $e) {
-        $db->rollBack();
-        $item_log[] = [
-            'error'   => $e->getMessage(),
-            'project' => $project['project_name'],
-        ];
-    }
 }
 
 // Push recalculated stock to WooCommerce for every project touched
 $sync_results = [];
-foreach (array_unique($affected_projects) as $project_id) {
+foreach ($result['affected_projects'] as $project_id) {
     $sync_results[] = wc_sync_project($db, $project_id);
 }
 
 echo json_encode([
     'success'      => true,
-    'wc_order_id'  => $wc_order_id,
-    'action'       => $should_deduct ? 'inventory_deducted' : 'inventory_restored',
-    'item_log'     => $item_log,
+    'wc_order_id'  => $result['wc_order_id'],
+    'item_log'     => $result['item_log'],
     'sync_results' => $sync_results,
 ]);

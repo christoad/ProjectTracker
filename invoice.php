@@ -13,13 +13,17 @@ if (!isset($order)) {
     $order_id = (int)($_GET['id'] ?? 0);
     if (!$order_id) { header('Location: index.php'); exit; }
     $db = getDB();
-    $stmt = $db->prepare("SELECT o.*, p.project_name, p.retail_price FROM orders o JOIN projects p ON o.project_id = p.id WHERE o.id = ?");
+    $stmt = $db->prepare("SELECT * FROM orders WHERE id = ?");
     $stmt->execute([$order_id]);
     $order = $stmt->fetch();
     if (!$order) { echo 'Order not found'; exit; }
+
+    $stmt = $db->prepare("SELECT oi.*, p.project_name FROM order_items oi JOIN projects p ON p.id = oi.project_id WHERE oi.order_id = ? ORDER BY oi.id");
+    $stmt->execute([$order_id]);
+    $order['items'] = $stmt->fetchAll();
 }
 
-$subtotal   = (float)$order['price_paid'];
+$subtotal   = array_sum(array_map(fn($it) => (float) $it['line_total'], $order['items']));
 $shipping   = (float)($order['shipping_charge'] ?? 0);
 $total      = $subtotal + $shipping;
 $ship_addr  = '';
@@ -116,12 +120,23 @@ cr@christopherreddick.com</p>
         </tr>
       </thead>
       <tbody>
+        <?php foreach ($order['items'] as $item):
+            $itemLabel = htmlspecialchars($item['project_name']) . ' — Kit';
+            if (!empty($item['variation_combo_key'])) {
+                $comboParts = array_map(function ($pair) {
+                    [$a, $v] = array_pad(explode(':', $pair, 2), 2, '');
+                    return htmlspecialchars($a) . ': ' . htmlspecialchars($v);
+                }, explode('|', $item['variation_combo_key']));
+                $itemLabel .= ' (' . implode(', ', $comboParts) . ')';
+            }
+        ?>
         <tr>
-          <td><?= htmlspecialchars($order['project_name']) ?> — Kit</td>
-          <td style="text-align:center;"><?= (int)$order['quantity'] ?></td>
-          <td style="text-align:right;">$<?= number_format($order['quantity'] > 0 ? $subtotal / $order['quantity'] : $subtotal, 2) ?></td>
-          <td style="text-align:right;">$<?= number_format($subtotal, 2) ?></td>
+          <td><?= $itemLabel ?></td>
+          <td style="text-align:center;"><?= (int)$item['quantity'] ?></td>
+          <td style="text-align:right;">$<?= number_format((float) $item['unit_price'], 2) ?></td>
+          <td style="text-align:right;">$<?= number_format((float) $item['line_total'], 2) ?></td>
         </tr>
+        <?php endforeach; ?>
         <?php if ($shipping > 0): ?>
         <tr>
           <td>Shipping<?= $order['mail_service'] ? ' — ' . htmlspecialchars($order['mail_service']) : '' ?></td>

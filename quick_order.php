@@ -114,28 +114,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_order'])) {
     $notes = $_POST['notes'] ?? '';
     
     $order_number = 'EMAIL-' . date('Ymd') . '-' . rand(1000, 9999);
-    
+    $quantity = max(1, (int) $quantity);
+    $unit_price = $quantity > 0 ? round(((float) $price_paid) / $quantity, 2) : (float) $price_paid;
+
     $stmt = $db->prepare("
-        INSERT INTO orders 
-        (order_number, project_id, customer_name, customer_email, customer_phone, 
-         customer_callsign, quantity, price_paid, order_date, status, shipping_address, 
-         notes, source, inventory_deducted) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, 'email_import', 0)
+        INSERT INTO orders
+        (order_number, customer_name, customer_email, customer_phone,
+         customer_callsign, order_date, status, shipping_address,
+         notes, source)
+        VALUES (?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, 'email_import')
     ");
-    
     $stmt->execute([
         $order_number,
-        $project_id,
         $customer_name,
         $customer_email,
         $customer_phone,
         $customer_callsign,
-        $quantity,
-        $price_paid,
         $shipping_address,
         $notes . "\n\n[Imported from email]"
     ]);
-    
+    $new_order_id = $db->lastInsertId();
+
+    $db->prepare("
+        INSERT INTO order_items (order_id, project_id, quantity, unit_price, line_total)
+        VALUES (?, ?, ?, ?, ?)
+    ")->execute([$new_order_id, $project_id, $quantity, $unit_price, $price_paid]);
+
     header('Location: index.php?message=order_created');
     exit;
 }
@@ -154,28 +158,28 @@ $projects = $db->query("SELECT id, project_name, retail_price FROM projects WHER
     <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-          --bg-body:            #ede8df;
-          --bg-card:            #f7f4ef;
-          --bg-card-header:     #ede8df;
-          --bg-dark:            #ede8df;
-          --bg-medium:          #f7f4ef;
-          --bg-light:           #c9b99a;
-          --header-gradient:    linear-gradient(135deg, #3d5a2a 0%, #4f7a38 100%);
+          --bg-body:            #e8f0fe;
+          --bg-card:            #f4f8ff;
+          --bg-card-header:     #eef3fd;
+          --bg-dark:            #162038;
+          --bg-medium:          #1a2f52;
+          --bg-light:           #c7d9fb;
+          --header-gradient:    linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
           --header-height:      56px;
-          --nav-bg:             #251d12;
-          --nav-border-bottom:  #4a7c38;
-          --accent-primary:     #4a7c38;
-          --accent-primary-dim: #3a6029;
-          --border-card:        #c9b99a;
-          --border-color:       #c9b99a;
-          --text-primary:       #2c1f0e;
-          --text-secondary:     #7a6a55;
-          --text-dim:           #a89a85;
-          --success:            #2d7a3a;
-          --warning:            #c47d1a;
-          --danger:             #b84444;
-          --shadow-card:        0 2px 8px rgba(44,31,14,0.06);
-          --shadow-header:      0 2px 16px rgba(44,31,14,0.22);
+          --nav-bg:             #162038;
+          --nav-border-bottom:  #1a56db;
+          --accent-primary:     #1a56db;
+          --accent-primary-dim: #1240a8;
+          --border-card:        #c7d9fb;
+          --border-color:       #c7d9fb;
+          --text-primary:       #0f1c3f;
+          --text-secondary:     #6b7280;
+          --text-dim:           #9ca3af;
+          --success:            #10b981;
+          --warning:            #f59e0b;
+          --danger:             #ef4444;
+          --shadow-card:        0 2px 8px rgba(10,30,100,0.06);
+          --shadow-header:      0 2px 16px rgba(15,28,63,0.22);
           --font-body:          'Figtree', sans-serif;
           --font-mono:          'IBM Plex Mono', monospace;
           --radius-sm:          3px;
@@ -284,7 +288,7 @@ $projects = $db->query("SELECT id, project_name, retail_price FROM projects WHER
         }
         .btn:hover { background: var(--accent-primary-dim); border-color: var(--accent-primary-dim); }
         .btn-secondary {
-            background: #ede8df;
+            background: var(--bg-card-header);
             border-color: var(--border-card);
             color: var(--accent-primary);
         }

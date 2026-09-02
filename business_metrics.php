@@ -5,6 +5,7 @@
  */
 
 require_once 'config.php';
+require_once 'woocommerce_sync.php'; // for wc_parse_combo_key() — pure parsing helper, no side effects
 
 header('Content-Type: application/json');
 
@@ -20,14 +21,14 @@ if ($action !== 'get_business_metrics') {
 try {
     $db = getDB();
     
-    // Build year filter
+    // Build year filter (queries below alias the orders table as `o`)
     $yearFilter = '';
     $params = [];
     if ($year !== 'all' && $year !== 'trailing') {
-        $yearFilter = "WHERE YEAR(order_date) = ?";
+        $yearFilter = "WHERE YEAR(o.order_date) = ?";
         $params[] = $year;
     } elseif ($year === 'trailing') {
-        $yearFilter = "WHERE order_date >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)";
+        $yearFilter = "WHERE o.order_date >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)";
     }
     
     // 1. INVENTORY VALUE (Cost)
@@ -53,56 +54,71 @@ try {
         $unrealizedRevenue += $row['potential_revenue'] ?? 0;
     }
     
-    // 3. ORDERS - REVENUE (price_paid)
+    // 3. ORDERS - REVENUE (sum of line items actually sold)
     $stmt = $db->prepare("
-        SELECT 
-            SUM(price_paid) as total_revenue,
-            COUNT(*) as order_count
-        FROM orders
+        SELECT SUM(oi.line_total) as total_revenue, COUNT(DISTINCT o.id) as order_count
+        FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
         $yearFilter
     ");
     $stmt->execute($params);
     $orderData = $stmt->fetch();
     $totalRevenue = $orderData['total_revenue'] ?? 0;
     $orderCount = $orderData['order_count'] ?? 0;
-    
-    // 4. ORDERS - COST (BOM cost of items sold)
-    $costQuery = "
-        SELECT 
-            o.id,
-            o.quantity,
-            o.shipping_charge,
-            o.project_id
-        FROM orders o
+
+    // 4. ORDER ITEMS - COST (BOM cost of the specific variation actually sold —
+    // fixed parts + only the variable parts matching that item's variation_combo_key)
+    $stmt = $db->prepare("
+        SELECT oi.project_id, oi.variation_combo_key, oi.quantity
+        FROM order_items oi
+        INNER JOIN orders o ON o.id = oi.order_id
         $yearFilter
-    ";
-    $stmt = $db->prepare($costQuery);
+    ");
     $stmt->execute($params);
-    $orders = $stmt->fetchAll();
-    
+    $soldItems = $stmt->fetchAll();
+
     $totalCOGS = 0; // Cost of Goods Sold
-    $totalShipping = 0;
-    
-    foreach ($orders as $order) {
-        // Get BOM for this project
-        $stmt = $db->prepare("
-            SELECT pp.quantity_required, p.weighted_avg_cost
-            FROM project_parts pp
-            INNER JOIN parts p ON pp.part_id = p.id
-            WHERE pp.project_id = ?
-        ");
-        $stmt->execute([$order['project_id']]);
-        $bomParts = $stmt->fetchAll();
-        
-        $orderCost = 0;
-        foreach ($bomParts as $part) {
-            $orderCost += $part['quantity_required'] * $part['weighted_avg_cost'];
+    $bomCostCache = []; // "project_id|combo_key" -> per-unit BOM cost
+
+    foreach ($soldItems as $item) {
+        $cacheKey = $item['project_id'] . '|' . ($item['variation_combo_key'] ?? '');
+        if (!isset($bomCostCache[$cacheKey])) {
+            $stmt2 = $db->prepare("
+                SELECT pp.quantity_required, p.weighted_avg_cost
+                FROM project_parts pp
+                INNER JOIN parts p ON pp.part_id = p.id
+                WHERE pp.project_id = ? AND pp.variation_attribute = ''
+            ");
+            $stmt2->execute([$item['project_id']]);
+            $unitCost = 0;
+            foreach ($stmt2->fetchAll() as $part) {
+                $unitCost += $part['quantity_required'] * $part['weighted_avg_cost'];
+            }
+
+            if (!empty($item['variation_combo_key'])) {
+                foreach (wc_parse_combo_key($item['variation_combo_key']) as $attr => $val) {
+                    $stmt3 = $db->prepare("
+                        SELECT pp.quantity_required, p.weighted_avg_cost
+                        FROM project_parts pp
+                        INNER JOIN parts p ON pp.part_id = p.id
+                        WHERE pp.project_id = ? AND pp.variation_attribute = ? AND pp.variation_value = ?
+                    ");
+                    $stmt3->execute([$item['project_id'], $attr, $val]);
+                    foreach ($stmt3->fetchAll() as $part) {
+                        $unitCost += $part['quantity_required'] * $part['weighted_avg_cost'];
+                    }
+                }
+            }
+            $bomCostCache[$cacheKey] = $unitCost;
         }
-        
-        $totalCOGS += $orderCost * $order['quantity'];
-        $totalShipping += $order['shipping_charge'];
+        $totalCOGS += $bomCostCache[$cacheKey] * $item['quantity'];
     }
-    
+
+    // Shipping is an order-level cost — sum once per order, not per line item
+    $stmt = $db->prepare("SELECT SUM(o.shipping_charge) as total_shipping FROM orders o $yearFilter");
+    $stmt->execute($params);
+    $totalShipping = (float) ($stmt->fetch()['total_shipping'] ?? 0);
+
     // 5. INVENTORY PURCHASES (money spent on inventory)
     $purchaseQuery = "
         SELECT SUM(quantity * unit_cost) as total_purchases
@@ -147,29 +163,31 @@ try {
     
     // 7. ORDERS BY STATUS
     $statusQuery = "
-        SELECT 
-            status,
-            COUNT(*) as count,
-            SUM(price_paid) as revenue
-        FROM orders
+        SELECT
+            o.status as status,
+            COUNT(DISTINCT o.id) as count,
+            SUM(oi.line_total) as revenue
+        FROM orders o
+        INNER JOIN order_items oi ON oi.order_id = o.id
         $yearFilter
-        GROUP BY status
+        GROUP BY o.status
     ";
     $stmt = $db->prepare($statusQuery);
     $stmt->execute($params);
     $ordersByStatus = $stmt->fetchAll();
-    
+
     // 8. TOP SELLING PROJECTS
     $topProjectsQuery = "
-        SELECT 
+        SELECT
             pr.project_name,
-            COUNT(o.id) as orders,
-            SUM(o.quantity) as units_sold,
-            SUM(o.price_paid) as revenue
-        FROM orders o
-        INNER JOIN projects pr ON o.project_id = pr.id
+            COUNT(DISTINCT o.id) as orders,
+            SUM(oi.quantity) as units_sold,
+            SUM(oi.line_total) as revenue
+        FROM order_items oi
+        INNER JOIN orders o ON o.id = oi.order_id
+        INNER JOIN projects pr ON oi.project_id = pr.id
         $yearFilter
-        GROUP BY o.project_id
+        GROUP BY oi.project_id
         ORDER BY revenue DESC
         LIMIT 5
     ";

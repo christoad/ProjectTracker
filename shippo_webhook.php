@@ -70,9 +70,8 @@ if ($event === 'track_updated') {
 
     $db   = getDB();
     $stmt = $db->prepare("
-        SELECT o.order_number, o.customer_name, o.customer_email, p.project_name
+        SELECT o.id, o.order_number, o.customer_name, o.customer_email
         FROM orders o
-        LEFT JOIN projects p ON o.project_id = p.id
         WHERE o.tracking_number = ?
         LIMIT 1
     ");
@@ -83,6 +82,14 @@ if ($event === 'track_updated') {
         echo json_encode(['skipped' => true, 'reason' => 'No tracker order found for tracking number: ' . $tracking_number]);
         exit;
     }
+
+    $stmt = $db->prepare("
+        SELECT p.project_name FROM order_items oi
+        JOIN projects p ON p.id = oi.project_id
+        WHERE oi.order_id = ?
+    ");
+    $stmt->execute([$order['id']]);
+    $order['project_name'] = implode(', ', $stmt->fetchAll(PDO::FETCH_COLUMN)) ?: 'your kit';
 
     $email_sent = send_delivery_email($order);
 

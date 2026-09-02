@@ -70,7 +70,16 @@ if ($action === 'get_dashboard') {
               )
             ORDER BY p.current_stock ASC LIMIT 10
         ")->fetchAll(),
-        'recent_orders' => $db->query("SELECT o.*, p.project_name FROM orders o JOIN projects p ON o.project_id = p.id ORDER BY o.created_at DESC LIMIT 5")->fetchAll(),
+        'recent_orders' => $db->query("
+            SELECT o.*,
+                   GROUP_CONCAT(CONCAT(p.project_name, ' ×', oi.quantity) SEPARATOR ', ') AS items_summary,
+                   SUM(oi.line_total) AS total_price
+            FROM orders o
+            LEFT JOIN order_items oi ON oi.order_id = o.id
+            LEFT JOIN projects p ON p.id = oi.project_id
+            GROUP BY o.id
+            ORDER BY o.created_at DESC LIMIT 5
+        ")->fetchAll(),
     ];
 
     // ── Bottleneck insights ───────────────────────────────────────────────────
@@ -934,6 +943,73 @@ if ($action === 'save_variation_mapping') {
     jsonResponse(['success' => true]);
 }
 
+// Promo / Freebie Giveaways — deduct BOM inventory for kits given away, not sold
+if ($action === 'save_promo') {
+    require_once 'woocommerce_sync.php';
+
+    $project_id = (int)($_POST['project_id'] ?? 0);
+    $combo_key  = trim($_POST['combo_key'] ?? '');
+    $quantity   = (int)($_POST['quantity'] ?? 0);
+    $note       = trim($_POST['note'] ?? '');
+
+    if (!$project_id || $quantity <= 0) {
+        jsonResponse(['error' => 'project_id and a positive quantity are required'], 400);
+        exit;
+    }
+
+    $log = wc_deduct_bom_inventory($db, $project_id, $quantity, $combo_key !== '' ? $combo_key : null);
+
+    $stmt = $db->prepare("
+        INSERT INTO promo_giveaways (project_id, variation_combo_key, quantity, note)
+        VALUES (?, ?, ?, ?)
+    ");
+    $stmt->execute([$project_id, $combo_key !== '' ? $combo_key : null, $quantity, $note !== '' ? $note : null]);
+
+    jsonResponse(['success' => true, 'id' => $db->lastInsertId(), 'log' => $log]);
+}
+
+if ($action === 'get_promo_history') {
+    $project_id = (int)($_GET['project_id'] ?? 0);
+    if (!$project_id) {
+        jsonResponse(['error' => 'project_id is required'], 400);
+        exit;
+    }
+    $stmt = $db->prepare("
+        SELECT id, variation_combo_key, quantity, note, created_at
+        FROM promo_giveaways
+        WHERE project_id = ?
+        ORDER BY created_at DESC
+        LIMIT 50
+    ");
+    $stmt->execute([$project_id]);
+    jsonResponse($stmt->fetchAll());
+}
+
+if ($action === 'delete_promo') {
+    require_once 'woocommerce_sync.php';
+
+    $id = (int)($_POST['id'] ?? 0);
+    if (!$id) {
+        jsonResponse(['error' => 'id is required'], 400);
+        exit;
+    }
+
+    $stmt = $db->prepare("SELECT project_id, variation_combo_key, quantity FROM promo_giveaways WHERE id = ?");
+    $stmt->execute([$id]);
+    $promo = $stmt->fetch();
+    if (!$promo) {
+        jsonResponse(['error' => 'Promo record not found'], 404);
+        exit;
+    }
+
+    wc_restore_bom_inventory($db, $promo['project_id'], $promo['quantity'], $promo['variation_combo_key'] ?: null);
+
+    $stmt = $db->prepare("DELETE FROM promo_giveaways WHERE id = ?");
+    $stmt->execute([$id]);
+
+    jsonResponse(['success' => true]);
+}
+
 // Project Expenses
 if ($action === 'save_project_expense') {
     $id = $_POST['id'] ?? null;
@@ -1266,36 +1342,59 @@ if ($action === 'get_checkins') {
 // Orders
 if ($action === 'get_orders') {
     $orders = $db->query("
-        SELECT o.*, p.project_name 
-        FROM orders o 
-        JOIN projects p ON o.project_id = p.id 
+        SELECT o.*,
+               GROUP_CONCAT(CONCAT(p.project_name,
+                   IF(oi.variation_combo_key IS NOT NULL AND oi.variation_combo_key != '',
+                      CONCAT(' (', REPLACE(REPLACE(oi.variation_combo_key, ':', ': '), '|', ', '), ')'), ''),
+                   ' ×', oi.quantity) SEPARATOR ', ') AS items_summary,
+               SUM(oi.quantity)   AS total_quantity,
+               SUM(oi.line_total) AS total_price
+        FROM orders o
+        LEFT JOIN order_items oi ON oi.order_id = o.id
+        LEFT JOIN projects p ON p.id = oi.project_id
+        GROUP BY o.id
         ORDER BY o.order_date DESC
     ")->fetchAll();
     jsonResponse($orders);
 }
 
 if ($action === 'get_order') {
-    $id = $_GET['id'] ?? 0;
+    $id = (int)($_GET['id'] ?? 0);
+    $stmt = $db->prepare("SELECT * FROM orders WHERE id = ?");
+    $stmt->execute([$id]);
+    $order = $stmt->fetch();
+    if (!$order) jsonResponse(['error' => 'Order not found'], 404);
+
     $stmt = $db->prepare("
-        SELECT o.*, p.project_name, p.ship_weight_oz, p.pkg_length, p.pkg_width, p.pkg_height, p.retail_price
-        FROM orders o
-        JOIN projects p ON o.project_id = p.id
-        WHERE o.id = ?
+        SELECT oi.*, p.project_name, p.ship_weight_oz, p.pkg_length, p.pkg_width, p.pkg_height, p.retail_price
+        FROM order_items oi
+        JOIN projects p ON p.id = oi.project_id
+        WHERE oi.order_id = ?
+        ORDER BY oi.id
     ");
     $stmt->execute([$id]);
-    jsonResponse($stmt->fetch() ?: ['error' => 'Order not found']);
+    $order['items'] = $stmt->fetchAll();
+
+    jsonResponse($order);
 }
 
+// Manual order entry (order_detail.php Save Changes, index.php New Order modal,
+// quick_order.php) — always a single line item; WooCommerce orders with
+// multiple line items are captured by wc_upsert_order() in woocommerce_sync.php.
+// Manual/editable order entry — index.php "New Order" modal and order_detail.php
+// "Save Changes" both post here. `items` is a JSON array of
+// {id?, project_id, combo_key?, quantity, price} (price = line total, not unit
+// price). Items missing from the array on an update are removed (restoring any
+// deducted inventory first); new ones (no id) are inserted.
 if ($action === 'save_order') {
+    require_once 'woocommerce_sync.php';
+
     $id = $_POST['id'] ?? null;
     $order_number = $_POST['order_number'] ?? 'ORD-' . date('Ymd') . '-' . rand(1000, 9999);
-    $project_id = $_POST['project_id'] ?? 0;
     $customer_name = $_POST['customer_name'] ?? '';
     $customer_email = $_POST['customer_email'] ?? '';
     $customer_phone = $_POST['customer_phone'] ?? '';
     $customer_callsign = $_POST['customer_callsign'] ?? '';
-    $quantity = $_POST['quantity'] ?? 1;
-    $price_paid = $_POST['price_paid'] ?? 0;
     $order_date = $_POST['order_date'] ?? date('Y-m-d');
     $status = $_POST['status'] ?? 'pending';
     $shipping_address = $_POST['shipping_address'] ?? '';
@@ -1309,103 +1408,165 @@ if ($action === 'save_order') {
     $ship_state   = $_POST['ship_state']   ?? null;
     $ship_zip     = $_POST['ship_zip']     ?? null;
     $mail_service = $_POST['mail_service'] ?? null;
-    
+
+    $items = json_decode($_POST['items'] ?? '[]', true);
+    if (!is_array($items) || empty($items)) {
+        jsonResponse(['error' => 'At least one order item is required'], 400);
+        exit;
+    }
+
+    $should_deduct = in_array($status, ['shipped', 'completed']);
+
     $db->beginTransaction();
-    
     try {
         if ($id) {
-            // Get old status and inventory_deducted status
-            $stmt = $db->prepare("SELECT status, inventory_deducted, quantity, project_id FROM orders WHERE id = ?");
+            $stmt = $db->prepare("SELECT status FROM orders WHERE id = ?");
             $stmt->execute([$id]);
             $old_order = $stmt->fetch();
+            if (!$old_order) throw new Exception('Order not found');
             $old_status = $old_order['status'];
-            $already_deducted = $old_order['inventory_deducted'];
-            
-            // Update order
-            $stmt = $db->prepare("UPDATE orders SET order_number = ?, project_id = ?, customer_name = ?, customer_email = ?, customer_phone = ?, customer_callsign = ?, quantity = ?, price_paid = ?, order_date = ?, status = ?, shipping_address = ?, notes = ?, source = ?, tracking_number = ?, shipping_charge = ?, ship_street = ?, ship_street2 = ?, ship_city = ?, ship_state = ?, ship_zip = ?, mail_service = ? WHERE id = ?");
-            $stmt->execute([$order_number, $project_id, $customer_name, $customer_email, $customer_phone, $customer_callsign, $quantity, $price_paid, $order_date, $status, $shipping_address, $notes, $source, $tracking_number, $shipping_charge, $ship_street, $ship_street2, $ship_city, $ship_state, $ship_zip, $mail_service, $id]);
-            
-            // Handle inventory deduction
-            $should_deduct = in_array($status, ['shipped', 'completed']);
-            
-            if ($should_deduct && !$already_deducted) {
-                // Deduct inventory
-                deductInventoryForOrder($db, $project_id, $quantity);
-                $stmt = $db->prepare("UPDATE orders SET inventory_deducted = 1 WHERE id = ?");
-                $stmt->execute([$id]);
-            } elseif (!$should_deduct && $already_deducted) {
-                // Restore inventory if order was cancelled or status changed back
-                restoreInventoryForOrder($db, $old_order['project_id'], $old_order['quantity']);
-                $stmt = $db->prepare("UPDATE orders SET inventory_deducted = 0 WHERE id = ?");
-                $stmt->execute([$id]);
-            }
-            
-            $db->commit();
-            jsonResponse(['success' => true, 'id' => $id, 'status_changed' => $old_status !== $status, 'new_status' => $status]);
+
+            $db->prepare("
+                UPDATE orders SET order_number = ?, customer_name = ?, customer_email = ?, customer_phone = ?, customer_callsign = ?,
+                    order_date = ?, status = ?, shipping_address = ?, notes = ?, source = ?, tracking_number = ?, shipping_charge = ?,
+                    ship_street = ?, ship_street2 = ?, ship_city = ?, ship_state = ?, ship_zip = ?, mail_service = ?
+                WHERE id = ?
+            ")->execute([$order_number, $customer_name, $customer_email, $customer_phone, $customer_callsign,
+                $order_date, $status, $shipping_address, $notes, $source, $tracking_number, $shipping_charge,
+                $ship_street, $ship_street2, $ship_city, $ship_state, $ship_zip, $mail_service, $id]);
+            $order_id = (int) $id;
         } else {
-            // Insert new order
-            $inventory_deducted = in_array($status, ['shipped', 'completed']) ? 1 : 0;
-            
-            $stmt = $db->prepare("INSERT INTO orders (order_number, project_id, customer_name, customer_email, customer_phone, customer_callsign, quantity, price_paid, order_date, status, shipping_address, notes, source, inventory_deducted, tracking_number, shipping_charge, ship_street, ship_street2, ship_city, ship_state, ship_zip, mail_service) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$order_number, $project_id, $customer_name, $customer_email, $customer_phone, $customer_callsign, $quantity, $price_paid, $order_date, $status, $shipping_address, $notes, $source, $inventory_deducted, $tracking_number, $shipping_charge, $ship_street, $ship_street2, $ship_city, $ship_state, $ship_zip, $mail_service]);
-            
-            $new_id = $db->lastInsertId();
-            
-            // Deduct inventory if necessary
-            if ($inventory_deducted) {
-                deductInventoryForOrder($db, $project_id, $quantity);
-            }
-            
-            $db->commit();
-            jsonResponse(['success' => true, 'id' => $new_id, 'status_changed' => false, 'new_status' => $status]);
+            $db->prepare("
+                INSERT INTO orders (order_number, customer_name, customer_email, customer_phone, customer_callsign,
+                    order_date, status, shipping_address, notes, source, tracking_number, shipping_charge,
+                    ship_street, ship_street2, ship_city, ship_state, ship_zip, mail_service)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ")->execute([$order_number, $customer_name, $customer_email, $customer_phone, $customer_callsign,
+                $order_date, $status, $shipping_address, $notes, $source, $tracking_number, $shipping_charge,
+                $ship_street, $ship_street2, $ship_city, $ship_state, $ship_zip, $mail_service]);
+            $order_id   = (int) $db->lastInsertId();
+            $old_status = null;
         }
+
+        $stmt = $db->prepare("SELECT id, project_id, quantity, variation_combo_key, inventory_deducted FROM order_items WHERE order_id = ?");
+        $stmt->execute([$order_id]);
+        $existingItems = [];
+        foreach ($stmt->fetchAll() as $row) $existingItems[(int) $row['id']] = $row;
+
+        $keptIds = [];
+        foreach ($items as $item) {
+            $item_project_id  = (int) ($item['project_id'] ?? 0);
+            $item_combo_key   = trim($item['combo_key'] ?? '');
+            $item_qty         = max(1, (int) ($item['quantity'] ?? 1));
+            $item_price       = (float) ($item['price'] ?? 0);
+            $item_unit        = $item_qty > 0 ? round($item_price / $item_qty, 2) : $item_price;
+            $existing_item_id = (int) ($item['id'] ?? 0);
+
+            if ($existing_item_id && isset($existingItems[$existing_item_id])) {
+                $old = $existingItems[$existing_item_id];
+                $already_deducted = (bool) $old['inventory_deducted'];
+
+                $db->prepare("UPDATE order_items SET project_id = ?, variation_combo_key = ?, quantity = ?, unit_price = ?, line_total = ? WHERE id = ?")
+                   ->execute([$item_project_id, $item_combo_key ?: null, $item_qty, $item_unit, $item_price, $existing_item_id]);
+
+                if ($should_deduct && !$already_deducted) {
+                    wc_deduct_bom_inventory($db, $item_project_id, $item_qty, $item_combo_key ?: null);
+                    $db->prepare("UPDATE order_items SET inventory_deducted = 1 WHERE id = ?")->execute([$existing_item_id]);
+                } elseif (!$should_deduct && $already_deducted) {
+                    wc_restore_bom_inventory($db, $old['project_id'], $old['quantity'], $old['variation_combo_key'] ?: null);
+                    $db->prepare("UPDATE order_items SET inventory_deducted = 0 WHERE id = ?")->execute([$existing_item_id]);
+                }
+                $keptIds[] = $existing_item_id;
+            } else {
+                $inventory_deducted = $should_deduct ? 1 : 0;
+                $db->prepare("INSERT INTO order_items (order_id, project_id, variation_combo_key, quantity, unit_price, line_total, inventory_deducted) VALUES (?, ?, ?, ?, ?, ?, ?)")
+                   ->execute([$order_id, $item_project_id, $item_combo_key ?: null, $item_qty, $item_unit, $item_price, $inventory_deducted]);
+                if ($inventory_deducted) {
+                    wc_deduct_bom_inventory($db, $item_project_id, $item_qty, $item_combo_key ?: null);
+                }
+                $keptIds[] = (int) $db->lastInsertId();
+            }
+        }
+
+        // Anything present before but missing from this submit was removed in the UI
+        foreach ($existingItems as $eid => $old) {
+            if (in_array($eid, $keptIds)) continue;
+            if ($old['inventory_deducted']) {
+                wc_restore_bom_inventory($db, $old['project_id'], $old['quantity'], $old['variation_combo_key'] ?: null);
+            }
+            $db->prepare("DELETE FROM order_items WHERE id = ?")->execute([$eid]);
+        }
+
+        $db->commit();
+        jsonResponse([
+            'success'        => true,
+            'id'             => $order_id,
+            'status_changed' => $old_status !== null && $old_status !== $status,
+            'new_status'     => $status,
+        ]);
     } catch (Exception $e) {
         $db->rollBack();
         jsonResponse(['error' => $e->getMessage()], 500);
     }
 }
 
-// Helper function to deduct inventory (manual orders — fixed parts only; variable parts require WooCommerce webhook)
-function deductInventoryForOrder($db, $project_id, $order_quantity) {
-    $stmt = $db->prepare("SELECT part_id, quantity_required FROM project_parts WHERE project_id = ? AND variation_attribute = ''");
-    $stmt->execute([$project_id]);
-    $bom_parts = $stmt->fetchAll();
-
-    foreach ($bom_parts as $bom_part) {
-        $deduct_qty = $bom_part['quantity_required'] * $order_quantity;
-        $stmt = $db->prepare("UPDATE parts SET current_stock = GREATEST(0, current_stock - ?) WHERE id = ?");
-        $stmt->execute([$deduct_qty, $bom_part['part_id']]);
-    }
-}
-
-// Helper function to restore inventory (manual orders — fixed parts only)
-function restoreInventoryForOrder($db, $project_id, $order_quantity) {
-    $stmt = $db->prepare("SELECT part_id, quantity_required FROM project_parts WHERE project_id = ? AND variation_attribute = ''");
-    $stmt->execute([$project_id]);
-    $bom_parts = $stmt->fetchAll();
-
-    foreach ($bom_parts as $bom_part) {
-        $restore_qty = $bom_part['quantity_required'] * $order_quantity;
-        $stmt = $db->prepare("UPDATE parts SET current_stock = current_stock + ? WHERE id = ?");
-        $stmt->execute([$restore_qty, $bom_part['part_id']]);
-    }
-}
-
 if ($action === 'delete_order') {
-    $id = $_POST['id'] ?? 0;
-    $stmt = $db->prepare("DELETE FROM orders WHERE id = ?");
+    require_once 'woocommerce_sync.php';
+    $id = (int)($_POST['id'] ?? 0);
+
+    // Restore any deducted inventory before the order (and its items, via FK cascade) is removed.
+    $stmt = $db->prepare("SELECT project_id, quantity, variation_combo_key FROM order_items WHERE order_id = ? AND inventory_deducted = 1");
     $stmt->execute([$id]);
+    foreach ($stmt->fetchAll() as $item) {
+        wc_restore_bom_inventory($db, $item['project_id'], $item['quantity'], $item['variation_combo_key'] ?: null);
+    }
+
+    $db->prepare("DELETE FROM orders WHERE id = ?")->execute([$id]);
     jsonResponse(['success' => true]);
+}
+
+// Refresh all order + line-item data from WooCommerce's own order history.
+// Data only — never touches parts.current_stock (inventory has moved on since
+// these orders were placed; this is for accurate reporting, not re-deduction).
+if ($action === 'wc_reconcile_orders') {
+    require_once 'woocommerce_sync.php';
+    set_time_limit(240);
+
+    $page = 1;
+    $ordersProcessed = 0;
+    $errors = [];
+    while (true) {
+        $wcOrders = wc_fetch_orders_page($page, 100);
+        if (empty($wcOrders)) break;
+
+        foreach ($wcOrders as $wcOrder) {
+            $result = wc_upsert_order($db, $wcOrder, false);
+            if (isset($result['error'])) {
+                $errors[] = $result;
+            } else {
+                $ordersProcessed++;
+            }
+        }
+
+        if (count($wcOrders) < 100 || $page > 50) break;
+        $page++;
+    }
+
+    jsonResponse(['success' => true, 'orders_processed' => $ordersProcessed, 'errors' => $errors]);
 }
 
 // Send invoice email
 if ($action === 'send_invoice') {
     $order_id = (int)($_POST['order_id'] ?? 0);
-    $stmt = $db->prepare("SELECT o.*, p.project_name, p.retail_price FROM orders o JOIN projects p ON o.project_id = p.id WHERE o.id = ?");
+    $stmt = $db->prepare("SELECT * FROM orders WHERE id = ?");
     $stmt->execute([$order_id]);
     $order = $stmt->fetch();
     if (!$order) jsonResponse(['error' => 'Order not found'], 404);
     if (!$order['customer_email']) jsonResponse(['error' => 'No email address on file for this customer.'], 400);
+
+    $stmt = $db->prepare("SELECT oi.*, p.project_name FROM order_items oi JOIN projects p ON p.id = oi.project_id WHERE oi.order_id = ? ORDER BY oi.id");
+    $stmt->execute([$order_id]);
+    $order['items'] = $stmt->fetchAll();
 
     $subject = "Invoice: " . $order['order_number'] . " — KI6CR Ham Radio Kits";
 

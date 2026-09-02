@@ -559,3 +559,208 @@ function wc_add_order_note($wc_order_id, string $note, bool $customer_note = fal
     }
     return ['error' => $result['message'] ?? "HTTP $http_code"];
 }
+
+// ── Order + line-item capture ────────────────────────────────────────────────
+
+/** Fetch one page of WooCommerce orders via REST API. Empty array = no more pages. */
+function wc_fetch_orders_page(int $page, int $perPage = 100): array {
+    $cfg = wc_get_config();
+    if (!$cfg) return [];
+
+    $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/orders?per_page=' . $perPage . '&page=' . $page . '&orderby=id&order=asc';
+    $ch  = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+        CURLOPT_TIMEOUT        => 30,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code !== 200) return [];
+    $data = json_decode($response, true);
+    return is_array($data) ? $data : [];
+}
+
+/** Map a WooCommerce order status to the tracker's status enum. */
+function wc_map_order_status(string $wcStatus): string {
+    switch ($wcStatus) {
+        case 'processing':
+        case 'on-hold':
+            return 'paid';
+        case 'completed':
+            return 'completed';
+        case 'cancelled':
+        case 'refunded':
+        case 'failed':
+        case 'trash':
+            return 'cancelled';
+        default:
+            return 'pending';
+    }
+}
+
+/**
+ * Upsert one parent `orders` row + its `order_items` rows from a raw WooCommerce
+ * order payload (webhook body or a single element of the REST API /orders list —
+ * same shape either way).
+ *
+ * $deductInventory = true  -> live webhook path. Only acts when status is
+ *                              processing/on-hold (deduct) or cancelled/refunded
+ *                              (restore) — anything else is a no-op, matching the
+ *                              old inline logic. Mutates parts.current_stock.
+ * $deductInventory = false -> reconciliation/backfill path. Upserts order + item
+ *                              data for ANY status so history is accurate, but
+ *                              NEVER touches parts.current_stock. inventory_deducted
+ *                              is set to reflect WC's own state (so a later live
+ *                              webhook for the same order stays idempotent)
+ *                              without actually deducting anything now.
+ *
+ * Combo keys are always raw strings — see file header note.
+ */
+function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
+    $wc_order_id = (int) ($wcOrder['id'] ?? 0);
+    if (!$wc_order_id) return ['error' => 'Missing WooCommerce order id'];
+
+    $wc_status      = $wcOrder['status'] ?? '';
+    $should_deduct  = in_array($wc_status, ['processing', 'on-hold']);
+    $should_restore = in_array($wc_status, ['cancelled', 'refunded']);
+
+    if ($deductInventory && !$should_deduct && !$should_restore) {
+        return ['skipped' => true, 'wc_order_id' => $wc_order_id, 'reason' => "Status '$wc_status' requires no inventory action"];
+    }
+
+    $order_number   = 'WC-' . $wc_order_id;
+    $tracker_status = wc_map_order_status($wc_status);
+    $customer       = trim(($wcOrder['billing']['first_name'] ?? '') . ' ' . ($wcOrder['billing']['last_name'] ?? ''));
+    $order_date     = str_replace('T', ' ', substr($wcOrder['date_created'] ?? date('c'), 0, 19));
+
+    $db->beginTransaction();
+    try {
+        // Lock (or gap-lock, if it doesn't exist yet) the parent row for this WC order —
+        // serializes near-simultaneous order.created + order.updated webhook deliveries.
+        $stmt = $db->prepare("SELECT id, status FROM orders WHERE wc_order_id = ? FOR UPDATE");
+        $stmt->execute([$wc_order_id]);
+        $existingOrder = $stmt->fetch();
+
+        $orderFields = [
+            'order_number'    => $order_number,
+            'wc_order_id'     => $wc_order_id,
+            'customer_name'   => $customer ?: 'WooCommerce Customer',
+            'customer_email'  => $wcOrder['billing']['email'] ?? '',
+            'customer_phone'  => $wcOrder['billing']['phone'] ?? '',
+            'order_date'      => $order_date,
+            'shipping_charge' => $wcOrder['shipping_total'] ?? 0,
+            'tax_total'       => $wcOrder['total_tax'] ?? 0,
+            'order_total'     => $wcOrder['total'] ?? null,
+            'source'          => 'woocommerce',
+        ];
+
+        // Don't regress a status already advanced by Shippo (shipped) unless this
+        // update is a cancellation — reconciliation always reflects WC's own status.
+        $set_status = true;
+        if ($deductInventory && $existingOrder && $existingOrder['status'] === 'shipped') {
+            $set_status = ($tracker_status === 'cancelled');
+        }
+
+        if (!$existingOrder) {
+            $orderFields['notes']  = "WooCommerce order #{$wc_order_id}";
+            $orderFields['status'] = $tracker_status;
+            $cols = array_keys($orderFields);
+            $db->prepare("INSERT INTO orders (" . implode(',', $cols) . ") VALUES (" . implode(',', array_fill(0, count($cols), '?')) . ")")
+               ->execute(array_values($orderFields));
+            $order_id = (int) $db->lastInsertId();
+        } else {
+            $order_id = (int) $existingOrder['id'];
+            $setSql = [];
+            $vals   = [];
+            foreach ($orderFields as $col => $val) {
+                $setSql[] = "$col = ?";
+                $vals[]   = $val;
+            }
+            if ($set_status) { $setSql[] = 'status = ?'; $vals[] = $tracker_status; }
+            $vals[] = $order_id;
+            $db->prepare("UPDATE orders SET " . implode(', ', $setSql) . " WHERE id = ?")->execute($vals);
+        }
+
+        $item_log = [];
+        $affected_projects = [];
+
+        foreach (($wcOrder['line_items'] ?? []) as $item) {
+            $wc_product_id   = (int) ($item['product_id'] ?? 0);
+            $wc_variation_id = (int) ($item['variation_id'] ?? 0);
+            $wc_line_item_id = (int) ($item['id'] ?? 0);
+            if (!$wc_product_id || !$wc_line_item_id) continue;
+
+            $stmt = $db->prepare("SELECT id, project_name FROM projects WHERE woocommerce_product_id = ?");
+            $stmt->execute([$wc_product_id]);
+            $project = $stmt->fetch();
+            if (!$project) {
+                $item_log[] = ['skipped' => true, 'reason' => "No project mapped to WC product $wc_product_id"];
+                continue;
+            }
+
+            $combo_key = null;
+            if ($wc_variation_id) {
+                $stmt = $db->prepare("SELECT combo_key FROM project_variation_mappings WHERE project_id = ? AND wc_variation_id = ?");
+                $stmt->execute([$project['id'], $wc_variation_id]);
+                $mapping = $stmt->fetch();
+                if ($mapping) $combo_key = $mapping['combo_key'];
+            }
+
+            $order_qty  = max(1, (int) ($item['quantity'] ?? 1));
+            $line_total = (float) ($item['total'] ?? 0);
+            $unit_price = $order_qty > 0 ? round($line_total / $order_qty, 2) : $line_total;
+
+            $stmt = $db->prepare("SELECT id, inventory_deducted, variation_combo_key FROM order_items WHERE order_id = ? AND wc_line_item_id = ? FOR UPDATE");
+            $stmt->execute([$order_id, $wc_line_item_id]);
+            $existingItem = $stmt->fetch();
+            $already_deducted = $existingItem && $existingItem['inventory_deducted'];
+
+            if ($deductInventory && $should_deduct && !$already_deducted) {
+                $deductions = wc_deduct_bom_inventory($db, $project['id'], $order_qty, $combo_key);
+                $item_log[] = ['project' => $project['project_name'], 'combo_key' => $combo_key, 'deductions' => $deductions];
+                $affected_projects[] = $project['id'];
+                $inventory_deducted = 1;
+            } elseif ($deductInventory && $should_restore && $already_deducted) {
+                $restore_combo_key = $existingItem['variation_combo_key'];
+                $restorations = wc_restore_bom_inventory($db, $project['id'], $order_qty, $restore_combo_key);
+                $item_log[] = ['project' => $project['project_name'], 'combo_key' => $restore_combo_key, 'restorations' => $restorations];
+                $affected_projects[] = $project['id'];
+                $inventory_deducted = 0;
+            } elseif (!$deductInventory) {
+                // Reconciliation: reflect WC's own state without mutating stock.
+                $inventory_deducted = in_array($wc_status, ['processing', 'on-hold', 'completed']) ? 1 : 0;
+            } else {
+                $item_log[] = ['skipped' => true, 'reason' => 'Already up to date for this order'];
+                $inventory_deducted = $existingItem ? (int) $existingItem['inventory_deducted'] : 0;
+            }
+
+            if (!$existingItem) {
+                $db->prepare("
+                    INSERT INTO order_items (order_id, project_id, variation_combo_key, wc_line_item_id, quantity, unit_price, line_total, inventory_deducted)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ")->execute([$order_id, $project['id'], $combo_key, $wc_line_item_id, $order_qty, $unit_price, $line_total, $inventory_deducted]);
+            } else {
+                $db->prepare("
+                    UPDATE order_items SET project_id = ?, variation_combo_key = ?, quantity = ?, unit_price = ?, line_total = ?, inventory_deducted = ?
+                    WHERE id = ?
+                ")->execute([$project['id'], $combo_key, $order_qty, $unit_price, $line_total, $inventory_deducted, $existingItem['id']]);
+            }
+        }
+
+        $db->commit();
+
+        return [
+            'success'           => true,
+            'wc_order_id'       => $wc_order_id,
+            'order_id'          => $order_id,
+            'item_log'          => $item_log,
+            'affected_projects' => array_values(array_unique($affected_projects)),
+        ];
+    } catch (Exception $e) {
+        $db->rollBack();
+        return ['error' => $e->getMessage(), 'wc_order_id' => $wc_order_id];
+    }
+}

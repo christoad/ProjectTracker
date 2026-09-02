@@ -27,28 +27,27 @@ try {
     $order_id = $_POST['order_id'] ?? 0;
     
     // Get order details
-    $stmt = $db->prepare("
-        SELECT o.*, p.project_name 
-        FROM orders o 
-        LEFT JOIN projects p ON o.project_id = p.id 
-        WHERE o.id = ?
-    ");
+    $stmt = $db->prepare("SELECT * FROM orders WHERE id = ?");
     $stmt->execute([$order_id]);
     $order = $stmt->fetch();
-    
+
     if (!$order) {
         http_response_code(404);
         echo json_encode(['error' => 'Order not found']);
         exit;
     }
-    
+
+    $stmt = $db->prepare("SELECT p.project_name, oi.quantity FROM order_items oi JOIN projects p ON p.id = oi.project_id WHERE oi.order_id = ?");
+    $stmt->execute([$order_id]);
+    $items = $stmt->fetchAll();
+
     $customer_email = $order['customer_email'];
     $customer_name = $order['customer_name'];
     $order_number = $order['order_number'];
     $status = $order['status'];
     $tracking_number = $order['tracking_number'];
-    $project_name = $order['project_name'];
-    $quantity = $order['quantity'];
+    $project_name = implode(', ', array_map(fn($i) => $i['project_name'], $items)) ?: 'your kit';
+    $quantity = array_sum(array_map(fn($i) => (int)$i['quantity'], $items));
     
     // Build email based on status
     $subject = "Order Update: $order_number";

@@ -1073,8 +1073,12 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">Customer Orders</h2>
-                        <button class="btn btn-primary" onclick="openOrderModal()">+ New Order</button>
+                        <div class="flex flex-gap">
+                            <button class="btn" id="wcReconcileBtn" onclick="wcReconcileOrders()" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Refresh from WooCommerce</button>
+                            <button class="btn btn-primary" onclick="openOrderModal()">+ New Order</button>
+                        </div>
                     </div>
+                    <div id="wcReconcileResult" style="padding:0 1rem;"></div>
                     <div class="table-container">
                         <table class="data-table" id="ordersTable">
                             <thead>
@@ -1083,9 +1087,9 @@
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'order_date')" title="Click to sort">Date <span id="sort-orders-order_date"></span></th>
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'customer_name')" title="Click to sort">Customer <span id="sort-orders-customer_name"></span></th>
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'customer_callsign')" title="Click to sort">Callsign <span id="sort-orders-customer_callsign"></span></th>
-                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'project_name')" title="Click to sort">Project <span id="sort-orders-project_name"></span></th>
-                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'quantity')" title="Click to sort">Qty <span id="sort-orders-quantity"></span></th>
-                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'price_paid')" title="Click to sort">Amount <span id="sort-orders-price_paid"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'items_summary')" title="Click to sort">Items <span id="sort-orders-items_summary"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'total_quantity')" title="Click to sort">Qty <span id="sort-orders-total_quantity"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'total_price')" title="Click to sort">Amount <span id="sort-orders-total_price"></span></th>
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'status')" title="Click to sort">Status <span id="sort-orders-status"></span></th>
                                     <th>Actions</th>
                                 </tr>
@@ -1509,9 +1513,9 @@
                 const ordersHtml = data.recent_orders && data.recent_orders.length > 0
                     ? data.recent_orders.map(o => `
                         <div style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">
-                            <strong>${o.customer_name}</strong> - ${o.project_name}<br>
+                            <strong>${o.customer_name}</strong> - ${o.items_summary || 'No items'}<br>
                             <span class="badge badge-${getStatusColor(o.status)}">${o.status}</span>
-                            $${parseFloat(o.price_paid).toFixed(2)}
+                            $${parseFloat(o.total_price || 0).toFixed(2)}
                         </div>
                     `).join('')
                     : '<div style="padding: 1rem; color: var(--text-dim);">No recent orders</div>';
@@ -1696,6 +1700,7 @@
                             <button class="btn btn-small" onclick="editProject(${p.id})">Edit</button>
                             <button class="btn btn-small" onclick="copyProject(${p.id})" style="background:var(--bg-light);border-color:var(--border-card);">Copy</button>
                             ${p.woocommerce_product_id ? `<button class="btn btn-small" onclick="wcSyncProject(${p.id}, this)" style="background:var(--accent-secondary);color:white;border-color:var(--accent-secondary);">Sync WC</button>` : ''}
+                            <button class="btn btn-small" onclick="openPromoModal(${p.id})" style="background:var(--warning);color:white;border-color:var(--warning);">Promo</button>
                             <button class="btn btn-small btn-danger" onclick="deleteProject(${p.id})">Trash</button>
                         </td>
                     </tr>
@@ -2057,9 +2062,9 @@
                         <td>${o.order_date}</td>
                         <td>${o.customer_name}</td>
                         <td>${o.customer_callsign || '-'}</td>
-                        <td>${o.project_name}</td>
-                        <td>${o.quantity}</td>
-                        <td>$${parseFloat(o.price_paid).toFixed(2)}</td>
+                        <td>${o.items_summary || '-'}</td>
+                        <td>${o.total_quantity ?? 0}</td>
+                        <td>$${parseFloat(o.total_price || 0).toFixed(2)}</td>
                         <td><span class="badge badge-${getStatusColor(o.status)}">${o.status}</span></td>
                         <td>
                             <a href="order_detail.php?id=${o.id}" class="btn btn-small">Open</a>
@@ -2069,6 +2074,30 @@
                 `).join('');
             } catch (error) {
                 console.error('Error loading orders:', error);
+            }
+        }
+
+        async function wcReconcileOrders() {
+            const btn = document.getElementById('wcReconcileBtn');
+            const result = document.getElementById('wcReconcileResult');
+            btn.disabled = true;
+            btn.textContent = 'Refreshing…';
+            result.innerHTML = '<div style="padding:0.5rem 0;color:var(--text-secondary);font-size:0.85rem;">Pulling order history from WooCommerce — this can take a little while for a full store history…</div>';
+            try {
+                const r = await fetch('api.php?action=wc_reconcile_orders');
+                const data = await r.json();
+                if (data.error) {
+                    result.innerHTML = `<div style="padding:0.5rem 0;color:var(--danger);font-size:0.85rem;">${data.error}</div>`;
+                } else {
+                    const errCount = (data.errors || []).length;
+                    result.innerHTML = `<div style="padding:0.5rem 0;color:var(--success);font-size:0.85rem;">✓ Refreshed ${data.orders_processed} order(s) from WooCommerce.${errCount ? ` ${errCount} error(s) — check wc_sync.log.` : ''}</div>`;
+                    loadOrders();
+                }
+            } catch (e) {
+                result.innerHTML = '<div style="padding:0.5rem 0;color:var(--danger);font-size:0.85rem;">Request failed.</div>';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Refresh from WooCommerce';
             }
         }
 
@@ -2203,6 +2232,162 @@
                     loadProjects();
                 } catch (error) {
                     alert('Error saving project');
+                }
+            });
+        }
+
+        // Promo / Freebie Giveaway Functions
+
+        function formatPromoCombo(comboKey) {
+            if (!comboKey) return '—';
+            return comboKey.split('|').map(pair => {
+                const [attr, val] = pair.split(':');
+                return `${attr}: ${val}`;
+            }).join(', ');
+        }
+
+        function renderPromoHistoryRows(history) {
+            if (!history || !history.length) {
+                return `<tr><td colspan="5" style="padding:8px;color:var(--text-secondary);text-align:center;">No promo giveaways logged yet.</td></tr>`;
+            }
+            return history.map(h => `
+                <tr>
+                    <td style="padding:5px 8px;font-family:var(--font-mono);font-size:0.8rem;white-space:nowrap;">${new Date(h.created_at).toLocaleDateString()}</td>
+                    <td style="padding:5px 8px;font-size:0.8rem;">${formatPromoCombo(h.variation_combo_key)}</td>
+                    <td style="padding:5px 8px;font-family:var(--font-mono);text-align:center;">${h.quantity}</td>
+                    <td style="padding:5px 8px;font-size:0.8rem;color:var(--text-secondary);">${h.note || ''}</td>
+                    <td style="padding:5px 8px;text-align:right;"><button type="button" class="btn btn-small btn-danger" onclick="deletePromo(${h.id}, ${h.project_id_for_undo})">Undo</button></td>
+                </tr>
+            `).join('');
+        }
+
+        async function refreshPromoHistory(projectId) {
+            const r = await fetch(`api.php?action=get_promo_history&project_id=${projectId}`);
+            const history = await r.json();
+            (history || []).forEach(h => h.project_id_for_undo = projectId);
+            const body = document.getElementById('promoHistoryBody');
+            if (body) body.innerHTML = renderPromoHistoryRows(history);
+        }
+
+        async function deletePromo(promoId, projectId) {
+            if (!confirm('Undo this promo? The deducted parts will be restored to inventory.')) return;
+            const formData = new FormData();
+            formData.append('action', 'delete_promo');
+            formData.append('id', promoId);
+            await fetch('api.php', { method: 'POST', body: formData });
+            refreshPromoHistory(projectId);
+            loadProjects();
+        }
+
+        async function openPromoModal(projectId) {
+            const project = projects.find(p => p.id === projectId);
+            const projectName = project ? project.project_name : '';
+
+            const [variationsRes, historyRes] = await Promise.all([
+                fetch(`api.php?action=get_project_variations&project_id=${projectId}`),
+                fetch(`api.php?action=get_promo_history&project_id=${projectId}`)
+            ]);
+            const variationData = await variationsRes.json();
+            const history = await historyRes.json();
+            (history || []).forEach(h => h.project_id_for_undo = projectId);
+
+            const comboOptionsHtml = variationData.has_variations
+                ? variationData.combos.map(c => `<option value="${c.combo_key}">${formatPromoCombo(c.combo_key)} — ${c.buildable} buildable</option>`).join('')
+                : '';
+
+            const modal = createModal(
+                `Promo / Freebie — ${projectName}`,
+                `
+                    <form id="promoForm">
+                        <p style="color:var(--text-secondary);font-size:0.85rem;margin-top:0;">
+                            Log a kit given away for free (contest prize, demo unit, hamfest freebie, etc). This deducts the BOM parts from inventory exactly like a sale, without creating an order or affecting revenue.
+                        </p>
+                        ${variationData.has_variations ? `
+                        <div class="form-group">
+                            <label class="form-label">Variation</label>
+                            <select id="promoCombo" class="form-select" required>
+                                ${comboOptionsHtml}
+                            </select>
+                        </div>
+                        ` : `<input type="hidden" id="promoCombo" value="">`}
+                        <div class="form-group">
+                            <label class="form-label">Quantity</label>
+                            <input type="number" id="promoQty" class="form-input" value="1" min="1" step="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Reason / Note (optional)</label>
+                            <input type="text" id="promoNote" class="form-input" placeholder="e.g. Field Day prize, YouTube review unit">
+                        </div>
+                        <div class="flex flex-gap">
+                            <button type="submit" class="btn btn-primary" style="background:var(--warning);border-color:var(--warning);">Deduct Inventory</button>
+                            <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
+                        </div>
+                    </form>
+                    <div id="promoResult" style="margin-top:0.75rem;"></div>
+                    <h4 style="margin:1.25rem 0 0.5rem;font-size:0.9rem;color:var(--text-secondary);">Recent Promo Giveaways</h4>
+                    <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border-card);border-radius:var(--radius-md);">
+                        <table style="width:100%;border-collapse:collapse;">
+                            <thead>
+                                <tr style="background:var(--bg-card-header);">
+                                    <th style="padding:5px 8px;text-align:left;font-size:0.78rem;">Date</th>
+                                    <th style="padding:5px 8px;text-align:left;font-size:0.78rem;">Variation</th>
+                                    <th style="padding:5px 8px;text-align:center;font-size:0.78rem;">Qty</th>
+                                    <th style="padding:5px 8px;text-align:left;font-size:0.78rem;">Note</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="promoHistoryBody">${renderPromoHistoryRows(history)}</tbody>
+                        </table>
+                    </div>
+                `
+            );
+
+            document.getElementById('promoForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const comboKey = document.getElementById('promoCombo').value;
+                const qty = parseInt(document.getElementById('promoQty').value, 10);
+                const note = document.getElementById('promoNote').value;
+
+                if (!confirm(`Deduct BOM parts for ${qty} promo unit(s) of "${projectName}"? Use Undo in the history list below if you make a mistake.`)) {
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('action', 'save_promo');
+                formData.append('project_id', projectId);
+                formData.append('combo_key', comboKey);
+                formData.append('quantity', qty);
+                formData.append('note', note);
+
+                const submitBtn = e.target.querySelector('button[type="submit"]');
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Deducting…';
+
+                try {
+                    const r = await fetch('api.php', { method: 'POST', body: formData });
+                    const data = await r.json();
+                    if (data.error) {
+                        document.getElementById('promoResult').innerHTML = `<div style="color:var(--danger);font-size:0.85rem;">${data.error}</div>`;
+                        return;
+                    }
+                    const logHtml = (data.log || []).map(l => `
+                        <div style="font-size:0.8rem;color:var(--text-secondary);">${l.part_name}: -${l.deducted} (now ${l.new_stock})</div>
+                    `).join('');
+                    document.getElementById('promoResult').innerHTML = `
+                        <div style="background:var(--bg-card-alt-row);border:1px solid var(--border-card);border-radius:var(--radius-md);padding:8px 10px;">
+                            <div style="color:var(--success);font-weight:600;font-size:0.85rem;margin-bottom:4px;">✓ Deducted ${qty} unit(s) from inventory</div>
+                            ${logHtml}
+                        </div>
+                    `;
+                    document.getElementById('promoForm').reset();
+                    document.getElementById('promoQty').value = 1;
+                    refreshPromoHistory(projectId);
+                    loadProjects();
+                } catch (error) {
+                    document.getElementById('promoResult').innerHTML = `<div style="color:var(--danger);font-size:0.85rem;">Error logging promo giveaway.</div>`;
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Deduct Inventory';
                 }
             });
         }
@@ -3835,113 +4020,110 @@
         }
 
         // Order Modal Functions
-        async function openOrderModal(orderId = null) {
-            // Ensure projects are loaded before opening modal
+        // Manual order entry (single item). Editing existing orders — including
+        // itemized WooCommerce orders — happens on order_detail.php instead.
+        async function openOrderModal() {
             if (!projects || projects.length === 0) {
                 await loadProjects();
             }
-            
-            const isEdit = orderId !== null;
-            const order = isEdit ? orders.find(o => o.id === orderId) : {};
-            
-            const projectOptions = projects.map(p => 
-                `<option value="${p.id}" ${order.project_id == p.id ? 'selected' : ''}>${p.project_name}</option>`
+
+            const projectOptions = projects.map(p =>
+                `<option value="${p.id}">${p.project_name}</option>`
             ).join('');
-            
+
             const modal = createModal(
-                isEdit ? 'Edit Order' : 'New Order',
+                'New Order',
                 `
                     <form id="orderForm">
-                        <input type="hidden" id="orderId" value="${order.id || ''}">
                         <div class="form-group">
                             <label class="form-label">Order Number</label>
-                            <input type="text" id="orderNumber" class="form-input" value="${order.order_number || 'ORD-' + Date.now()}" required>
+                            <input type="text" id="orderNumber" class="form-input" value="ORD-${Date.now()}" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Project/Kit</label>
-                            <select id="orderProject" class="form-select" required>
+                            <select id="orderProject" class="form-select" required onchange="onNewOrderProjectChange(this.value)">
                                 <option value="">Select project...</option>
                                 ${projectOptions}
                             </select>
                         </div>
+                        <div class="form-group" id="orderVariationGroup" style="display:none;">
+                            <label class="form-label">Variation</label>
+                            <select id="orderCombo" class="form-select"></select>
+                        </div>
                         <div class="form-group">
                             <label class="form-label">Customer Name</label>
-                            <input type="text" id="orderCustomer" class="form-input" value="${order.customer_name || ''}" required>
+                            <input type="text" id="orderCustomer" class="form-input" value="" required>
                         </div>
                         <div class="grid-2">
                             <div class="form-group">
                                 <label class="form-label">Email</label>
-                                <input type="email" id="orderEmail" class="form-input" value="${order.customer_email || ''}">
+                                <input type="email" id="orderEmail" class="form-input" value="">
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Phone</label>
-                                <input type="tel" id="orderPhone" class="form-input" value="${order.customer_phone || ''}">
+                                <input type="tel" id="orderPhone" class="form-input" value="">
                             </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Callsign</label>
-                            <input type="text" id="orderCallsign" class="form-input" value="${order.customer_callsign || ''}">
+                            <input type="text" id="orderCallsign" class="form-input" value="">
                         </div>
                         <div class="grid-2">
                             <div class="form-group">
                                 <label class="form-label">Quantity</label>
-                                <input type="number" id="orderQty" class="form-input" value="${order.quantity || 1}" min="1" required>
+                                <input type="number" id="orderQty" class="form-input" value="1" min="1" required>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Price Paid ($)</label>
-                                <input type="number" id="orderPrice" class="form-input" value="${order.price_paid || 0}" step="0.01" min="0" required>
+                                <input type="number" id="orderPrice" class="form-input" value="0" step="0.01" min="0" required>
                             </div>
                         </div>
                         <div class="grid-2">
                             <div class="form-group">
                                 <label class="form-label">Order Date</label>
-                                <input type="date" id="orderDate" class="form-input" value="${order.order_date || new Date().toISOString().split('T')[0]}" required>
+                                <input type="date" id="orderDate" class="form-input" value="${new Date().toISOString().split('T')[0]}" required>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Status</label>
                                 <select id="orderStatus" class="form-select">
-                                    <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pending</option>
-                                    <option value="paid" ${order.status === 'paid' ? 'selected' : ''}>Paid</option>
-                                    <option value="shipped" ${order.status === 'shipped' ? 'selected' : ''}>Shipped</option>
-                                    <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>Completed</option>
-                                    <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="paid">Paid</option>
+                                    <option value="shipped">Shipped</option>
+                                    <option value="completed">Completed</option>
+                                    <option value="cancelled">Cancelled</option>
                                 </select>
                             </div>
                         </div>
                         <div id="trackingNumberGroup" class="form-group" style="display: none;">
                             <label class="form-label">Tracking Number</label>
-                            <input type="text" id="orderTracking" class="form-input" value="${order.tracking_number || ''}" placeholder="e.g., 1Z999AA10123456784">
+                            <input type="text" id="orderTracking" class="form-input" value="" placeholder="e.g., 1Z999AA10123456784">
                             <small style="color: var(--text-secondary); font-size: 0.875rem;">Enter tracking number for shipped orders</small>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Shipping Charge ($)</label>
-                            <input type="number" id="orderShippingCharge" class="form-input" value="${order.shipping_charge || 0}" step="0.01" min="0">
+                            <input type="number" id="orderShippingCharge" class="form-input" value="0" step="0.01" min="0">
                             <small style="color: var(--text-secondary); font-size: 0.875rem;">Actual shipping cost paid for P&L tracking</small>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Shipping Address</label>
-                            <textarea id="orderAddress" class="form-textarea">${order.shipping_address || ''}</textarea>
+                            <textarea id="orderAddress" class="form-textarea"></textarea>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Notes</label>
-                            <textarea id="orderNotes" class="form-textarea">${order.notes || ''}</textarea>
+                            <textarea id="orderNotes" class="form-textarea"></textarea>
                         </div>
                         <div class="flex flex-gap">
                             <button type="submit" class="btn btn-primary">Save Order</button>
-                            ${isEdit ? '<button type="button" class="btn btn-secondary" onclick="sendCustomerEmail(' + orderId + ')">Send Status Email to Customer</button>' : ''}
                             <button type="button" class="btn" onclick="this.closest(\'.modal\').remove()">Cancel</button>
                         </div>
                     </form>
                 `
             );
 
-            // Load projects for the dropdown
-            loadProjects();
-            
             // Show/hide tracking number based on status
             const statusSelect = document.getElementById('orderStatus');
             const trackingGroup = document.getElementById('trackingNumberGroup');
-            
+
             function updateTrackingVisibility() {
                 const status = statusSelect.value;
                 if (status === 'shipped' || status === 'completed') {
@@ -3950,7 +4132,7 @@
                     trackingGroup.style.display = 'none';
                 }
             }
-            
+
             statusSelect.addEventListener('change', updateTrackingVisibility);
             updateTrackingVisibility(); // Check initial state
 
@@ -3958,15 +4140,17 @@
                 e.preventDefault();
                 const formData = new FormData();
                 formData.append('action', 'save_order');
-                if (orderId) formData.append('id', orderId);
                 formData.append('order_number', document.getElementById('orderNumber').value);
-                formData.append('project_id', document.getElementById('orderProject').value);
+                formData.append('items', JSON.stringify([{
+                    project_id: parseInt(document.getElementById('orderProject').value, 10),
+                    combo_key: document.getElementById('orderCombo').value || '',
+                    quantity: parseInt(document.getElementById('orderQty').value, 10) || 1,
+                    price: parseFloat(document.getElementById('orderPrice').value) || 0,
+                }]));
                 formData.append('customer_name', document.getElementById('orderCustomer').value);
                 formData.append('customer_email', document.getElementById('orderEmail').value);
                 formData.append('customer_phone', document.getElementById('orderPhone').value);
                 formData.append('customer_callsign', document.getElementById('orderCallsign').value);
-                formData.append('quantity', document.getElementById('orderQty').value);
-                formData.append('price_paid', document.getElementById('orderPrice').value);
                 formData.append('order_date', document.getElementById('orderDate').value);
                 formData.append('status', document.getElementById('orderStatus').value);
                 formData.append('tracking_number', document.getElementById('orderTracking').value);
@@ -3985,8 +4169,21 @@
             });
         }
 
-        function editOrder(id) {
-            openOrderModal(id);
+        async function onNewOrderProjectChange(projectId) {
+            const group = document.getElementById('orderVariationGroup');
+            const select = document.getElementById('orderCombo');
+            if (!projectId) { group.style.display = 'none'; select.innerHTML = ''; return; }
+            try {
+                const r = await fetch(`api.php?action=get_project_variations&project_id=${projectId}`);
+                const data = await r.json();
+                if (data.has_variations) {
+                    select.innerHTML = data.combos.map(c => `<option value="${c.combo_key}">${formatPromoCombo(c.combo_key)}</option>`).join('');
+                    group.style.display = 'block';
+                } else {
+                    select.innerHTML = '';
+                    group.style.display = 'none';
+                }
+            } catch (e) { group.style.display = 'none'; }
         }
 
         async function deleteOrder(id) {
@@ -4002,26 +4199,6 @@
                 loadDashboard();
             } catch (error) {
                 alert('Error deleting order');
-            }
-        }
-
-        async function sendCustomerEmail(orderId) {
-            if (!confirm('Send status update email to customer?')) return;
-            
-            const formData = new FormData();
-            formData.append('action', 'send_customer_email');
-            formData.append('order_id', orderId);
-            
-            try {
-                const response = await fetch('send_customer_email.php', { method: 'POST', body: formData });
-                const result = await response.json();
-                if (result.success) {
-                    alert('✓ Email sent to customer!');
-                } else {
-                    alert('Error sending email: ' + (result.error || 'Unknown error'));
-                }
-            } catch (error) {
-                alert('Error sending email');
             }
         }
 

@@ -6,15 +6,20 @@ $order_id = (int)($_GET['id'] ?? 0);
 if (!$order_id) { header('Location: index.php'); exit; }
 
 $db = getDB();
-$stmt = $db->prepare("
-    SELECT o.*, p.project_name, p.ship_weight_oz, p.pkg_length, p.pkg_width, p.pkg_height, p.retail_price
-    FROM orders o
-    JOIN projects p ON o.project_id = p.id
-    WHERE o.id = ?
-");
+$stmt = $db->prepare("SELECT * FROM orders WHERE id = ?");
 $stmt->execute([$order_id]);
 $order = $stmt->fetch();
 if (!$order) { header('Location: index.php'); exit; }
+
+$stmt = $db->prepare("
+    SELECT oi.*, p.project_name
+    FROM order_items oi
+    JOIN projects p ON p.id = oi.project_id
+    WHERE oi.order_id = ?
+    ORDER BY oi.id
+");
+$stmt->execute([$order_id]);
+$order['items'] = $stmt->fetchAll();
 
 $projects = $db->query("SELECT id, project_name FROM projects WHERE status IN ('active','planning') ORDER BY project_name")->fetchAll();
 
@@ -38,25 +43,25 @@ if (!$ship_zip_fallback && !empty($order['shipping_address'])) {
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg-body:            #ede8df;
-  --bg-card:            #f7f4ef;
-  --bg-card-header:     #ede8df;
-  --bg-dark:            #ede8df;
-  --bg-medium:          #f7f4ef;
-  --bg-light:           #c9b99a;
-  --header-gradient:    linear-gradient(135deg, #3d5a2a 0%, #4f7a38 100%);
+  --bg-body:            #e8f0fe;
+  --bg-card:            #f4f8ff;
+  --bg-card-header:     #eef3fd;
+  --bg-dark:            #162038;
+  --bg-medium:          #1a2f52;
+  --bg-light:           #c7d9fb;
+  --header-gradient:    linear-gradient(135deg, #1a56db 0%, #0680c6 100%);
   --header-height:      56px;
-  --accent:             #4a7c38;
-  --accent-dim:         #3a6029;
-  --text:               #2c1f0e;
-  --text-sec:           #7a6a55;
-  --border:             #c9b99a;
-  --success:            #2d7a3a;
-  --warning:            #c47d1a;
-  --danger:             #b84444;
-  --info:               #4a7c38;
-  --shadow-card:        0 2px 8px rgba(44,31,14,0.06);
-  --shadow-header:      0 2px 16px rgba(44,31,14,0.22);
+  --accent:             #1a56db;
+  --accent-dim:         #1240a8;
+  --text:               #0f1c3f;
+  --text-sec:           #6b7280;
+  --border:             #c7d9fb;
+  --success:            #10b981;
+  --warning:            #f59e0b;
+  --danger:             #ef4444;
+  --info:               #3b82f6;
+  --shadow-card:        0 2px 8px rgba(10,30,100,0.06);
+  --shadow-header:      0 2px 16px rgba(15,28,63,0.22);
   --font-body:          'Figtree', sans-serif;
   --font-mono:          'IBM Plex Mono', monospace;
   --radius-md:          4px;
@@ -84,7 +89,7 @@ body { font-family: var(--font-body); background: var(--bg-body); color: var(--t
 .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
 .g4 { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0.75rem; }
 .flex { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
-.btn { padding: 5px 12px; border: 1px solid var(--border); border-radius: 3px; background: #ede8df; color: var(--accent); cursor: pointer; font-family: var(--font-body); font-size: 11px; font-weight: 500; text-decoration: none; display: inline-block; white-space: nowrap; transition: all 0.15s; }
+.btn { padding: 5px 12px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-card-header); color: var(--accent); cursor: pointer; font-family: var(--font-body); font-size: 11px; font-weight: 500; text-decoration: none; display: inline-block; white-space: nowrap; transition: all 0.15s; }
 .btn:hover { background: var(--bg-light); border-color: var(--accent); }
 .btn-primary { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; border-radius: var(--radius-md); }
 .btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: white; }
@@ -148,26 +153,6 @@ body { font-family: var(--font-body); background: var(--bg-body); color: var(--t
                 <input type="text" id="orderSource" class="form-input" value="<?= htmlspecialchars($order['source'] ?? 'manual') ?>">
             </div>
         </div>
-        <div class="g3">
-            <div class="form-group">
-                <label class="form-label">Project / Kit</label>
-                <select id="orderProject" class="form-select">
-                    <?php foreach ($projects as $p): ?>
-                    <option value="<?= $p['id'] ?>" <?= $p['id'] == $order['project_id'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($p['project_name']) ?>
-                    </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Quantity</label>
-                <input type="number" id="orderQty" class="form-input" value="<?= (int)$order['quantity'] ?>" min="1">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Price Paid ($)</label>
-                <input type="number" id="orderPrice" class="form-input" value="<?= htmlspecialchars($order['price_paid']) ?>" step="0.01" min="0">
-            </div>
-        </div>
         <div class="g2">
             <div class="form-group">
                 <label class="form-label">Status</label>
@@ -203,6 +188,26 @@ body { font-family: var(--font-body); background: var(--bg-body); color: var(--t
             <label class="form-label">Phone</label>
             <input type="tel" id="orderPhone" class="form-input" value="<?= htmlspecialchars($order['customer_phone'] ?? '') ?>">
         </div>
+    </div>
+</div>
+
+<!-- ── Items ─────────────────────────────────────── -->
+<div class="card">
+    <div class="card-header"><span class="card-title">Items</span></div>
+    <div class="card-body">
+        <table style="width:100%;border-collapse:collapse;">
+            <thead>
+                <tr style="border-bottom:1px solid var(--border);">
+                    <th style="text-align:left;padding:4px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-sec);">Project / Kit</th>
+                    <th style="text-align:left;padding:4px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-sec);">Variation</th>
+                    <th style="text-align:center;padding:4px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-sec);width:70px;">Qty</th>
+                    <th style="text-align:right;padding:4px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-sec);width:110px;">Price Paid ($)</th>
+                    <th style="width:36px;"></th>
+                </tr>
+            </thead>
+            <tbody id="itemsTableBody"></tbody>
+        </table>
+        <button type="button" class="btn" style="margin-top:0.75rem;" onclick="addItemRow()">+ Add Item</button>
     </div>
 </div>
 
@@ -300,7 +305,109 @@ body { font-family: var(--font-body); background: var(--bg-body); color: var(--t
 
 <script>
 const ORDER_ID = <?= $order_id ?>;
-const PROJECT_ID = <?= (int)$order['project_id'] ?>;
+const PROJECTS = <?= json_encode(array_map(fn($p) => ['id' => (int) $p['id'], 'project_name' => $p['project_name']], $projects)) ?>;
+
+let nextRowKey = 0;
+let itemRows = <?= json_encode(array_map(fn($it) => [
+    'item_id'    => (int) $it['id'],
+    'project_id' => (int) $it['project_id'],
+    'combo_key'  => $it['variation_combo_key'] ?? '',
+    'quantity'   => (int) $it['quantity'],
+    'price'      => (float) $it['line_total'],
+], $order['items'])) ?>.map(r => ({ ...r, key: 'r' + (nextRowKey++) }));
+let variationCache = {};
+
+// ── Items table ────────────────────────────────────────────
+function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s ?? '';
+    return d.innerHTML;
+}
+
+function formatCombo(comboKey) {
+    if (!comboKey) return '—';
+    return comboKey.split('|').map(pair => {
+        const [attr, val] = pair.split(':');
+        return `${attr}: ${val}`;
+    }).join(', ');
+}
+
+async function ensureVariationsLoaded(projectId) {
+    if (variationCache[projectId]) return;
+    variationCache[projectId] = { has_variations: false, combos: [] }; // placeholder, avoids duplicate fetches
+    try {
+        const r = await fetch(`api.php?action=get_project_variations&project_id=${projectId}`);
+        variationCache[projectId] = await r.json();
+    } catch (e) { /* leave placeholder */ }
+    renderItemsTable();
+}
+
+function itemRowHtml(row) {
+    const projectOptions = PROJECTS.map(p =>
+        `<option value="${p.id}" ${p.id == row.project_id ? 'selected' : ''}>${escapeHtml(p.project_name)}</option>`
+    ).join('');
+
+    const info = variationCache[row.project_id];
+    let variationHtml;
+    if (!info) {
+        variationHtml = `<span style="color:var(--text-sec);font-size:12px;">…</span>`;
+    } else if (!info.has_variations) {
+        variationHtml = `<span style="color:var(--text-sec);font-size:12px;">—</span>`;
+    } else {
+        const opts = info.combos.map(c =>
+            `<option value="${c.combo_key}" ${c.combo_key === row.combo_key ? 'selected' : ''}>${escapeHtml(formatCombo(c.combo_key))}</option>`
+        ).join('');
+        variationHtml = `<select class="form-select" style="font-size:12px;" onchange="updateItemField('${row.key}','combo_key',this.value)">${opts}</select>`;
+    }
+
+    return `
+        <tr>
+            <td style="padding:4px 6px;"><select class="form-select" style="font-size:12px;" onchange="onProjectChange('${row.key}', this.value)">${projectOptions}</select></td>
+            <td style="padding:4px 6px;">${variationHtml}</td>
+            <td style="padding:4px 6px;"><input type="number" class="form-input" style="text-align:center;font-size:12px;" value="${row.quantity}" min="1" onchange="updateItemField('${row.key}','quantity',this.value)"></td>
+            <td style="padding:4px 6px;"><input type="number" class="form-input" style="text-align:right;font-size:12px;" value="${row.price}" step="0.01" min="0" onchange="updateItemField('${row.key}','price',this.value)"></td>
+            <td style="padding:4px 6px;text-align:center;"><button type="button" class="btn btn-danger" style="padding:3px 8px;" onclick="removeItemRow('${row.key}')" title="Remove item">×</button></td>
+        </tr>
+    `;
+}
+
+function renderItemsTable() {
+    document.getElementById('itemsTableBody').innerHTML = itemRows.map(itemRowHtml).join('');
+}
+
+function onProjectChange(key, projectIdStr) {
+    const projectId = parseInt(projectIdStr, 10);
+    const row = itemRows.find(r => r.key === key);
+    if (!row) return;
+    row.project_id = projectId;
+    row.combo_key = '';
+    if (!variationCache[projectId]) ensureVariationsLoaded(projectId);
+    renderItemsTable();
+}
+
+function updateItemField(key, field, value) {
+    const row = itemRows.find(r => r.key === key);
+    if (!row) return;
+    if (field === 'quantity') row.quantity = parseInt(value, 10) || 1;
+    else if (field === 'price') row.price = parseFloat(value) || 0;
+    else row[field] = value;
+}
+
+function addItemRow() {
+    const projectId = PROJECTS[0]?.id || 0;
+    itemRows.push({ key: 'r' + (nextRowKey++), item_id: null, project_id: projectId, combo_key: '', quantity: 1, price: 0 });
+    if (!variationCache[projectId]) ensureVariationsLoaded(projectId);
+    renderItemsTable();
+}
+
+function removeItemRow(key) {
+    if (itemRows.length <= 1) { alert('An order must have at least one item.'); return; }
+    itemRows = itemRows.filter(r => r.key !== key);
+    renderItemsTable();
+}
+
+renderItemsTable();
+[...new Set(itemRows.map(r => r.project_id))].forEach(ensureVariationsLoaded);
 
 // ── Save ─────────────────────────────────────────────────
 async function saveOrder() {
@@ -312,13 +419,13 @@ async function saveOrder() {
     fd.append('action', 'save_order');
     fd.append('id', ORDER_ID);
     fd.append('order_number',       document.getElementById('orderNumber').value);
-    fd.append('project_id',         document.getElementById('orderProject').value);
+    fd.append('items',              JSON.stringify(itemRows.map(row => ({
+        id: row.item_id, project_id: row.project_id, combo_key: row.combo_key, quantity: row.quantity, price: row.price
+    }))));
     fd.append('customer_name',      document.getElementById('orderCustomer').value);
     fd.append('customer_email',     document.getElementById('orderEmail').value);
     fd.append('customer_phone',     document.getElementById('orderPhone').value);
     fd.append('customer_callsign',  document.getElementById('orderCallsign').value);
-    fd.append('quantity',           document.getElementById('orderQty').value);
-    fd.append('price_paid',         document.getElementById('orderPrice').value);
     fd.append('order_date',         document.getElementById('orderDate').value);
     fd.append('status',             document.getElementById('orderStatus').value);
     fd.append('tracking_number',    document.getElementById('orderTracking').value);
@@ -331,7 +438,6 @@ async function saveOrder() {
     fd.append('ship_city',          document.getElementById('shipCity').value);
     fd.append('ship_state',         document.getElementById('shipState').value);
     fd.append('ship_zip',           document.getElementById('shipZip').value);
-    fd.append('ship_country',       document.getElementById('shipCountry').value);
     fd.append('shipping_address',   addr);
 
     try {
