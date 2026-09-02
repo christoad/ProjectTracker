@@ -474,7 +474,7 @@ if ($action === 'get_trashed_projects') {
 
 // WooCommerce sync — proxied through api.php so browser content blockers
 // don't flag the woocommerce_webhook.php URL pattern.
-if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
+if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_stock'])) {
     require_once 'woocommerce_sync.php';
 
     if ($action === 'wc_status') {
@@ -570,6 +570,33 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all'])) {
     if ($action === 'wc_sync_all') {
         $results = wc_sync_all_projects($db);
         jsonResponse(['synced' => count($results), 'results' => $results]);
+    }
+
+    if ($action === 'wc_push_manual_stock') {
+        $project_id   = (int)($_POST['project_id'] ?? 0);
+        $qty          = (int)($_POST['qty'] ?? -1);
+        $variation_id = isset($_POST['variation_id']) && $_POST['variation_id'] !== '' ? (int) $_POST['variation_id'] : null;
+
+        if ($project_id <= 0 || $qty < 0) {
+            jsonResponse(['error' => 'Invalid project or quantity'], 400);
+        }
+
+        $stmt = $db->prepare("SELECT woocommerce_product_id FROM projects WHERE id = ?");
+        $stmt->execute([$project_id]);
+        $wc_product_id = $stmt->fetchColumn();
+        if (!$wc_product_id) {
+            jsonResponse(['error' => 'Project is not mapped to a WooCommerce product'], 400);
+        }
+
+        $result = $variation_id
+            ? wc_push_variation_stock($wc_product_id, $variation_id, $qty)
+            : wc_push_stock($wc_product_id, $qty);
+
+        wc_log(isset($result['success']) ? 'info' : 'error', 'Manual stock override', [
+            'project_id' => $project_id, 'variation_id' => $variation_id, 'qty' => $qty, 'result' => $result,
+        ]);
+
+        jsonResponse($result);
     }
 
     if ($action === 'wc_sync_log') {

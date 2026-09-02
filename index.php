@@ -1783,13 +1783,14 @@
                             const color = v.match ? 'var(--success)' : 'var(--warning)';
                             const wcVal = v.wc_qty !== null && v.wc_qty !== undefined ? v.wc_qty : '?';
                             const qtyColor = v.tracker_qty > 0 ? 'var(--success)' : 'var(--danger)';
+                            const cellId = `wcqty_${p.project_id}_${v.variation_id}`;
                             return `<tr style="${i === 0 ? 'border-top:1px solid var(--border-card)' : ''}">
                                 <td style="padding:6px 8px;font-weight:600;${i > 0 ? 'color:transparent;font-size:0px;padding-top:0' : ''}">${i === 0 ? p.project_name : ''}</td>
                                 <td style="padding:6px 8px;color:var(--text-secondary);font-size:11px;">${v.combo}</td>
                                 <td style="padding:6px 8px;font-family:var(--font-mono);color:${qtyColor}">${v.tracker_qty}</td>
-                                <td style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
+                                <td id="${cellId}" style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
                                 <td style="padding:6px 8px;color:${color};font-weight:700">${icon}</td>
-                                <td style="padding:6px 8px">${!v.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id})" style="font-size:10px;">Sync</button>` : ''}</td>
+                                <td style="padding:6px 8px;white-space:nowrap;">${!v.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id})" style="font-size:10px;">Sync</button> ` : ''}<button class="btn btn-small" onclick="wcEditStock(${p.project_id}, ${v.variation_id}, '${cellId}', ${wcVal === '?' ? 0 : wcVal})" style="font-size:10px;">Edit</button></td>
                             </tr>`;
                         });
                     } else {
@@ -1798,13 +1799,14 @@
                         const color = p.match ? 'var(--success)' : 'var(--warning)';
                         const wcVal = p.wc_stock_qty !== null && p.wc_stock_qty !== undefined ? p.wc_stock_qty : '?';
                         const qtyColor = p.calculated_available_qty > 0 ? 'var(--success)' : 'var(--danger)';
+                        const cellId = `wcqty_${p.project_id}_0`;
                         return [`<tr style="border-top:1px solid var(--border-card)">
                             <td style="padding:6px 8px;font-weight:600">${p.project_name}</td>
                             <td style="padding:6px 8px;color:var(--text-secondary);font-size:11px;">—</td>
                             <td style="padding:6px 8px;font-family:var(--font-mono);color:${qtyColor}">${p.calculated_available_qty}</td>
-                            <td style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
+                            <td id="${cellId}" style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
                             <td style="padding:6px 8px;color:${color};font-weight:700">${icon}</td>
-                            <td style="padding:6px 8px">${!p.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id})" style="font-size:10px;">Sync</button>` : ''}</td>
+                            <td style="padding:6px 8px;white-space:nowrap;">${!p.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id})" style="font-size:10px;">Sync</button> ` : ''}<button class="btn btn-small" onclick="wcEditStock(${p.project_id}, null, '${cellId}', ${wcVal === '?' ? 0 : wcVal})" style="font-size:10px;">Edit</button></td>
                         </tr>`];
                     }
                 }).join('');
@@ -1823,11 +1825,58 @@
                         </thead>
                         <tbody>${rows}</tbody>
                     </table>
-                    ${anyMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some quantities are out of sync — use the Sync buttons above, or Sync All.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All quantities match WooCommerce.</div>'}`);
+                    ${anyMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some quantities are out of sync — use the Sync buttons above, or Sync All.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All quantities match WooCommerce.</div>'}
+                    <div style="padding:6px 0 0;font-size:11px;color:var(--text-dim);">Edit lets you type a number and push it straight to WooCommerce — it does not change the tracker's calculated quantity.</div>`);
             } catch(e) {
                 wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = 'Check WC Status'; }
+            }
+        }
+
+        function wcEditStock(projectId, variationId, cellId, currentQty) {
+            const cell = document.getElementById(cellId);
+            if (!cell) return;
+            const inputId = cellId + '_input';
+            cell.dataset.orig = cell.innerHTML;
+            cell.innerHTML = `<input type="number" min="0" step="1" id="${inputId}" value="${currentQty}" style="width:60px;font-family:var(--font-mono);padding:2px 4px;border:1px solid var(--border-card);border-radius:3px;">
+                <button class="btn btn-small" onclick="wcSaveStock(${projectId}, ${variationId === null ? 'null' : variationId}, '${cellId}')" style="font-size:10px;">Save</button>
+                <button class="btn btn-small" onclick="wcCancelEditStock('${cellId}')" style="font-size:10px;">✕</button>`;
+            const input = document.getElementById(inputId);
+            if (input) { input.focus(); input.select(); }
+        }
+
+        function wcCancelEditStock(cellId) {
+            const cell = document.getElementById(cellId);
+            if (cell && cell.dataset.orig !== undefined) { cell.innerHTML = cell.dataset.orig; }
+        }
+
+        async function wcSaveStock(projectId, variationId, cellId) {
+            const cell = document.getElementById(cellId);
+            const input = document.getElementById(cellId + '_input');
+            if (!cell || !input) return;
+            const qty = parseInt(input.value, 10);
+            if (isNaN(qty) || qty < 0) { alert('Enter a valid quantity (0 or higher).'); return; }
+
+            cell.innerHTML = '<span style="color:var(--text-dim);">Saving…</span>';
+            try {
+                const formData = new FormData();
+                formData.append('action', 'wc_push_manual_stock');
+                formData.append('project_id', projectId);
+                if (variationId !== null) formData.append('variation_id', variationId);
+                formData.append('qty', qty);
+                const r = await fetch('api.php', { method: 'POST', body: formData });
+                const data = await r.json();
+                if (data.success) {
+                    cell.style.color = 'var(--success)';
+                    cell.textContent = data.new_stock ?? qty;
+                } else {
+                    cell.style.color = 'var(--danger)';
+                    cell.textContent = '⚠ ' + (data.error || 'Failed');
+                }
+            } catch(e) {
+                cell.style.color = 'var(--danger)';
+                cell.textContent = '⚠ ' + e.message;
             }
         }
 
