@@ -8,6 +8,7 @@ require_once 'config.php';
 require_once 'woocommerce_sync.php'; // for wc_parse_combo_key() — pure parsing helper, no side effects
 
 header('Content-Type: application/json');
+requireLogin();
 
 $action = $_GET['action'] ?? '';
 $year = $_GET['year'] ?? 'all';
