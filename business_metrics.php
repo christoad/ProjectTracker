@@ -13,7 +13,7 @@ requireLogin();
 $action = $_GET['action'] ?? '';
 $year = $_GET['year'] ?? 'all';
 
-if ($action !== 'get_business_metrics') {
+if (!in_array($action, ['get_business_metrics', 'get_project_pl'])) {
     http_response_code(400);
     echo json_encode(['error' => 'Invalid action']);
     exit;
@@ -31,7 +31,128 @@ try {
     } elseif ($year === 'trailing') {
         $yearFilter = "WHERE o.order_date >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)";
     }
-    
+
+    if ($action === 'get_project_pl') {
+        $project_id = (int) ($_GET['project_id'] ?? 0);
+        if ($project_id <= 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'project_id is required']);
+            exit;
+        }
+
+        $stmt = $db->prepare("SELECT id, project_name, status, retail_price FROM projects WHERE id = ?");
+        $stmt->execute([$project_id]);
+        $project = $stmt->fetch();
+        if (!$project) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Project not found']);
+            exit;
+        }
+
+        // Per-unit BOM cost for a given combo_key (fixed parts + that combo's variable
+        // parts), cached per combo since the same combo repeats across many order items.
+        $bomCostCache = [];
+        $unitCostFor = function (?string $combo_key) use ($db, $project_id, &$bomCostCache) {
+            $key = $combo_key ?? '';
+            if (isset($bomCostCache[$key])) return $bomCostCache[$key];
+
+            $stmt = $db->prepare("
+                SELECT pp.quantity_required, p.weighted_avg_cost
+                FROM project_parts pp
+                INNER JOIN parts p ON pp.part_id = p.id
+                WHERE pp.project_id = ? AND pp.variation_attribute = ''
+            ");
+            $stmt->execute([$project_id]);
+            $unitCost = 0;
+            foreach ($stmt->fetchAll() as $part) {
+                $unitCost += $part['quantity_required'] * $part['weighted_avg_cost'];
+            }
+
+            if ($key !== '') {
+                foreach (wc_parse_combo_key($key) as $attr => $val) {
+                    $stmt3 = $db->prepare("
+                        SELECT pp.quantity_required, p.weighted_avg_cost
+                        FROM project_parts pp
+                        INNER JOIN parts p ON pp.part_id = p.id
+                        WHERE pp.project_id = ? AND pp.variation_attribute = ? AND pp.variation_value = ?
+                    ");
+                    $stmt3->execute([$project_id, $attr, $val]);
+                    foreach ($stmt3->fetchAll() as $part) {
+                        $unitCost += $part['quantity_required'] * $part['weighted_avg_cost'];
+                    }
+                }
+            }
+
+            return $bomCostCache[$key] = $unitCost;
+        };
+
+        // Revenue / COGS / units sold for this project, within the selected period
+        $itemQuery = "
+            SELECT oi.order_id, oi.variation_combo_key, oi.quantity, oi.line_total
+            FROM order_items oi
+            INNER JOIN orders o ON o.id = oi.order_id
+            " . ($yearFilter !== '' ? $yearFilter . " AND" : "WHERE") . " oi.project_id = ?
+        ";
+        $stmt = $db->prepare($itemQuery);
+        $stmt->execute(array_merge($params, [$project_id]));
+        $items = $stmt->fetchAll();
+
+        $revenue = 0; $cogs = 0; $unitsSold = 0; $orderIds = [];
+        foreach ($items as $item) {
+            $revenue   += (float) $item['line_total'];
+            $unitsSold += (int) $item['quantity'];
+            $cogs      += $unitCostFor($item['variation_combo_key']) * $item['quantity'];
+            $orderIds[$item['order_id']] = true;
+        }
+        $orderCount = count($orderIds);
+
+        $grossProfit = $revenue - $cogs;
+        $margin = $revenue > 0 ? ($grossProfit / $revenue) * 100 : 0;
+
+        // Research/dev spend — all-time, same convention as the business-wide dashboard
+        // (research is a sunk cost, not something that resets per reporting period)
+        $stmt = $db->prepare("SELECT COALESCE(SUM(cost),0) FROM project_expenses WHERE project_id = ?");
+        $stmt->execute([$project_id]);
+        $researchExpenses = (float) $stmt->fetchColumn();
+
+        // Promo/giveaway inventory — real cost (BOM cost of parts given away free)
+        // that never shows up as revenue, all-time same as research spend above
+        $stmt = $db->prepare("SELECT variation_combo_key, SUM(quantity) as qty FROM promo_giveaways WHERE project_id = ? GROUP BY variation_combo_key");
+        $stmt->execute([$project_id]);
+        $giveawayUnits = 0; $giveawayCost = 0;
+        foreach ($stmt->fetchAll() as $row) {
+            $giveawayUnits += (int) $row['qty'];
+            $giveawayCost  += $unitCostFor($row['variation_combo_key']) * $row['qty'];
+        }
+
+        $totalInvested = $researchExpenses + $giveawayCost;
+        $netProfit = $grossProfit - $totalInvested;
+        $brokeEven = $totalInvested <= 0 || $grossProfit >= $totalInvested;
+        $breakEvenRemaining = $brokeEven ? 0 : round($totalInvested - $grossProfit, 2);
+
+        echo json_encode([
+            'project_id'          => (int) $project['id'],
+            'project_name'        => $project['project_name'],
+            'status'              => $project['status'],
+            'retail_price'        => (float) $project['retail_price'],
+            'period'              => $year,
+            'units_sold'          => $unitsSold,
+            'order_count'         => $orderCount,
+            'revenue'             => round($revenue, 2),
+            'cogs'                => round($cogs, 2),
+            'gross_profit'        => round($grossProfit, 2),
+            'margin'              => round($margin, 2),
+            'research_expenses'   => round($researchExpenses, 2),
+            'giveaway_units'      => $giveawayUnits,
+            'giveaway_cost'       => round($giveawayCost, 2),
+            'total_invested'      => round($totalInvested, 2),
+            'net_profit'          => round($netProfit, 2),
+            'broke_even'          => $brokeEven,
+            'breakeven_remaining' => $breakEvenRemaining,
+        ]);
+        exit;
+    }
+
     // 1. INVENTORY VALUE (Cost)
     $stmt = $db->query("
         SELECT SUM(current_stock * weighted_avg_cost) as total_inventory_cost
@@ -153,11 +274,11 @@ try {
     ";
     
     if ($year !== 'all' && $year !== 'trailing') {
-        $purchaseQuery .= " WHERE YEAR(check_in_date) = ?";
+        $purchaseQuery .= " WHERE YEAR(purchase_date) = ?";
         $stmt = $db->prepare($purchaseQuery);
         $stmt->execute([$year]);
     } elseif ($year === 'trailing') {
-        $purchaseQuery .= " WHERE check_in_date >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)";
+        $purchaseQuery .= " WHERE purchase_date >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)";
         $stmt = $db->query($purchaseQuery);
     } else {
         $stmt = $db->query($purchaseQuery);
@@ -206,6 +327,7 @@ try {
     // 8. TOP SELLING PROJECTS
     $topProjectsQuery = "
         SELECT
+            pr.id as project_id,
             pr.project_name,
             COUNT(DISTINCT o.id) as orders,
             SUM(oi.quantity) as units_sold,

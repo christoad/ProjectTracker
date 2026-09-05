@@ -1166,6 +1166,17 @@
                     </div>
                 </div>
 
+                <div class="card" style="margin-bottom: 2rem;">
+                    <div class="card-body" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+                        <h3 style="margin:0;">Per-Project P&amp;L</h3>
+                        <select id="businessProjectSelect" class="form-select" style="max-width:340px;flex:1;min-width:220px;">
+                            <option value="">Loading projects…</option>
+                        </select>
+                        <button class="btn btn-primary btn-small" onclick="openProjectPLModal()">View P&amp;L</button>
+                        <span style="color:var(--text-dim);font-size:0.85em;">Uses the period selected above.</span>
+                    </div>
+                </div>
+
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
                     <div class="card">
                         <div class="card-body">
@@ -4416,20 +4427,136 @@
                 let projectsHtml = '<table class="data-table">';
                 if (businessMetrics.top_projects && businessMetrics.top_projects.length > 0) {
                     businessMetrics.top_projects.forEach(p => {
-                        projectsHtml += `<tr><td>${p.project_name}</td><td>${p.units_sold} units</td><td style="text-align: right;">$${parseFloat(p.revenue).toLocaleString()}</td></tr>`;
+                        projectsHtml += `<tr>
+                            <td>${p.project_name}</td>
+                            <td>${p.units_sold} units</td>
+                            <td style="text-align: right;">$${parseFloat(p.revenue).toLocaleString()}</td>
+                            <td style="text-align: right;"><button class="btn btn-small" onclick="openProjectPLModal(${p.project_id})">P&amp;L</button></td>
+                        </tr>`;
                     });
                 } else {
-                    projectsHtml += '<tr><td colspan="3">No sales yet</td></tr>';
+                    projectsHtml += '<tr><td colspan="4">No sales yet</td></tr>';
                 }
                 projectsHtml += '</table>';
                 document.getElementById('topProjects').innerHTML = projectsHtml;
-                
-                // Load the expenses list alongside metrics
+
+                // Load the expenses list and the per-project selector alongside metrics
                 loadBizExpenses();
+                populateBusinessProjectSelect();
 
             } catch (error) {
                 console.error('Error loading business metrics:', error);
                 alert('Error loading business metrics. Make sure business_metrics.php is uploaded.');
+            }
+        }
+
+        // Populates the "Per-Project P&L" dropdown on the Business tab. Fetched fresh
+        // rather than relying on the global `projects` array, since a user landing
+        // directly on the Business tab won't have triggered loadProjects() yet.
+        async function populateBusinessProjectSelect() {
+            const select = document.getElementById('businessProjectSelect');
+            if (!select) return;
+            const prevValue = select.value;
+            try {
+                const resp = await fetch('api.php?action=get_projects');
+                const projs = await resp.json();
+                const sorted = [...projs].sort((a, b) => a.project_name.localeCompare(b.project_name));
+                select.innerHTML = sorted.map(p =>
+                    `<option value="${p.id}">${p.project_name}${p.status !== 'active' ? ' (' + p.status + ')' : ''}</option>`
+                ).join('');
+                if (prevValue && sorted.some(p => String(p.id) === prevValue)) {
+                    select.value = prevValue;
+                }
+            } catch (e) {
+                select.innerHTML = '<option value="">Could not load projects</option>';
+            }
+        }
+
+        async function openProjectPLModal(projectId) {
+            if (!projectId) {
+                const select = document.getElementById('businessProjectSelect');
+                projectId = select ? select.value : null;
+            }
+            if (!projectId) {
+                alert('Choose a project first.');
+                return;
+            }
+
+            const period = document.getElementById('businessPeriod')?.value || 'all';
+            const periodLabels = { all: 'All Time', trailing: 'Last 12 Months' };
+            const periodLabel = periodLabels[period] || period;
+
+            const modal = createModal('Project P&L', '<div style="text-align:center;padding:2rem;color:var(--text-dim);">Loading…</div>');
+
+            try {
+                const resp = await fetch(`business_metrics.php?action=get_project_pl&project_id=${projectId}&year=${period}`);
+                const d = await resp.json();
+                if (d.error) {
+                    modal.querySelector('.modal-content').innerHTML = `
+                        <div class="modal-header">
+                            <h3 class="modal-title">Project P&amp;L</h3>
+                            <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+                        </div>
+                        <div style="color:var(--danger);padding:1rem;">Error: ${d.error}</div>
+                    `;
+                    return;
+                }
+
+                const fmt = (n) => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const marginColor = d.margin >= 0 ? 'var(--success)' : 'var(--danger)';
+                const netColor = d.net_profit >= 0 ? 'var(--success)' : 'var(--danger)';
+
+                let breakEvenHtml;
+                if (d.total_invested <= 0) {
+                    breakEvenHtml = `<div style="padding:0.75rem;color:var(--text-dim);font-size:0.9em;">No R&amp;D or giveaway costs recorded for this project — nothing to break even against.</div>`;
+                } else if (d.broke_even) {
+                    breakEvenHtml = `<div style="padding:0.75rem;background:rgba(16,185,129,0.1);border-radius:4px;color:var(--success);font-weight:600;">✓ Broken even — gross profit has covered ${fmt(d.total_invested)} in R&amp;D/giveaway costs, with a surplus of ${fmt(d.gross_profit - d.total_invested)}.</div>`;
+                } else {
+                    breakEvenHtml = `<div style="padding:0.75rem;background:rgba(245,158,11,0.1);border-radius:4px;color:var(--warning);font-weight:600;">Not yet broken even — needs ${fmt(d.breakeven_remaining)} more gross profit to cover ${fmt(d.total_invested)} in R&amp;D/giveaway costs.</div>`;
+                }
+
+                const content = `
+                    <div style="margin-bottom:1rem;">
+                        <div style="font-weight:600;font-size:1.1rem;">${d.project_name}</div>
+                        <div style="color:var(--text-dim);font-size:0.85em;">${periodLabel} · ${d.units_sold} units sold in ${d.order_count} order${d.order_count === 1 ? '' : 's'}</div>
+                    </div>
+                    <table class="data-table">
+                        <tr><td><strong>Revenue</strong></td><td style="text-align:right;">${fmt(d.revenue)}</td></tr>
+                        <tr><td style="padding-left:2rem;">- Cost of Goods Sold</td><td style="text-align:right;">${fmt(d.cogs)}</td></tr>
+                        <tr style="border-top:1px solid var(--border-color);">
+                            <td><strong>Gross Profit</strong></td>
+                            <td style="text-align:right;font-weight:600;color:${marginColor};">${fmt(d.gross_profit)} <span style="color:var(--text-dim);font-weight:400;font-size:0.85em;">(${d.margin.toFixed(1)}%)</span></td>
+                        </tr>
+                        <tr><td style="padding-left:2rem;">- Research &amp; Dev Expenses <span style="color:var(--text-dim);font-size:0.8em;">(all-time)</span></td><td style="text-align:right;">${fmt(d.research_expenses)}</td></tr>
+                        <tr><td style="padding-left:2rem;">- Giveaway/Promo Cost <span style="color:var(--text-dim);font-size:0.8em;">(${d.giveaway_units} units, all-time)</span></td><td style="text-align:right;">${fmt(d.giveaway_cost)}</td></tr>
+                        <tr style="border-top:2px solid var(--border-color);">
+                            <td><strong>Net Profit</strong></td>
+                            <td style="text-align:right;font-weight:bold;color:${netColor};">${fmt(d.net_profit)}</td>
+                        </tr>
+                    </table>
+                    ${breakEvenHtml}
+                    <div style="margin-top:0.75rem;font-size:0.8em;color:var(--text-dim);">
+                        Revenue/COGS reflect the selected period; R&amp;D and giveaway costs are all-time (sunk costs). Shipping and store-wide overhead aren't attributed per project since a single order can span multiple products — see the main Business Dashboard P&amp;L for those.
+                    </div>
+                `;
+                modal.querySelector('.modal-content').innerHTML = `
+                    <div class="modal-header">
+                        <h3 class="modal-title">Project P&amp;L</h3>
+                        <div style="display: flex; align-items: center;">
+                            <button class="expand-modal" onclick="toggleModalExpand(this)" title="Expand/Collapse">⛶</button>
+                            <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+                        </div>
+                    </div>
+                    ${content}
+                `;
+            } catch (e) {
+                modal.querySelector('.modal-content').innerHTML = `
+                    <div class="modal-header">
+                        <h3 class="modal-title">Project P&amp;L</h3>
+                        <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+                    </div>
+                    <div style="color:var(--danger);padding:1rem;">Request failed: ${e.message}</div>
+                `;
             }
         }
 
