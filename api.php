@@ -700,10 +700,107 @@ if ($action === 'get_part') {
         $stmt = $db->prepare("SELECT * FROM inventory_checkins WHERE part_id = ? ORDER BY received ASC, purchase_date DESC LIMIT 50");
         $stmt->execute([$id]);
         $part['checkins'] = $stmt->fetchAll();
-        
+
+        // Get manual stock adjustments (e.g. JLCPCB PCBA consumption, damage, corrections)
+        $stmt = $db->prepare("SELECT * FROM inventory_adjustments WHERE part_id = ? ORDER BY created_at DESC LIMIT 50");
+        $stmt->execute([$id]);
+        $part['adjustments'] = $stmt->fetchAll();
+
         jsonResponse($part);
     } else {
         jsonResponse(['error' => 'Part not found'], 404);
+    }
+}
+
+// Manual stock adjustments — deduct (or add back) raw part quantity outside the normal
+// purchase check-in / project BOM flow. Used e.g. when raw parts are consumed directly
+// by a JLCPCB PCBA run and never return as usable stock for other projects.
+if ($action === 'save_inventory_adjustment') {
+    $part_id  = (int)($_POST['part_id'] ?? 0);
+    $quantity = (int)($_POST['quantity'] ?? 0);
+    $direction = ($_POST['direction'] ?? 'remove') === 'add' ? 'add' : 'remove';
+    $reason   = trim($_POST['reason'] ?? '');
+    $note     = trim($_POST['note'] ?? '');
+
+    if (!$part_id || $quantity <= 0 || $reason === '') {
+        jsonResponse(['error' => 'part_id, a positive quantity, and a reason are required'], 400);
+        exit;
+    }
+
+    $quantity_change = $direction === 'add' ? $quantity : -$quantity;
+
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare("SELECT current_stock FROM parts WHERE id = ? FOR UPDATE");
+        $stmt->execute([$part_id]);
+        $part = $stmt->fetch();
+        if (!$part) {
+            $db->rollBack();
+            jsonResponse(['error' => 'Part not found'], 404);
+            exit;
+        }
+
+        $new_stock = (int)$part['current_stock'] + $quantity_change;
+        if ($new_stock < 0) {
+            $db->rollBack();
+            jsonResponse(['error' => "Cannot remove {$quantity} units — only {$part['current_stock']} in stock"], 400);
+            exit;
+        }
+
+        $stmt = $db->prepare("UPDATE parts SET current_stock = ? WHERE id = ?");
+        $stmt->execute([$new_stock, $part_id]);
+
+        $stmt = $db->prepare("INSERT INTO inventory_adjustments (part_id, quantity_change, reason, note) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$part_id, $quantity_change, $reason, $note !== '' ? $note : null]);
+
+        $db->commit();
+        jsonResponse(['success' => true, 'id' => $db->lastInsertId(), 'new_stock' => $new_stock]);
+    } catch (Exception $e) {
+        $db->rollBack();
+        jsonResponse(['error' => 'Failed to save adjustment: ' . $e->getMessage()], 500);
+    }
+}
+
+if ($action === 'delete_inventory_adjustment') {
+    $id = (int)($_POST['id'] ?? 0);
+    if (!$id) {
+        jsonResponse(['error' => 'id is required'], 400);
+        exit;
+    }
+
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare("SELECT part_id, quantity_change FROM inventory_adjustments WHERE id = ?");
+        $stmt->execute([$id]);
+        $adj = $stmt->fetch();
+        if (!$adj) {
+            $db->rollBack();
+            jsonResponse(['error' => 'Adjustment not found'], 404);
+            exit;
+        }
+
+        $stmt = $db->prepare("SELECT current_stock FROM parts WHERE id = ? FOR UPDATE");
+        $stmt->execute([$adj['part_id']]);
+        $part = $stmt->fetch();
+
+        $reverted_stock = (int)$part['current_stock'] - (int)$adj['quantity_change'];
+        if ($reverted_stock < 0) {
+            $db->rollBack();
+            jsonResponse(['error' => 'Cannot delete — reverting would make stock negative'], 400);
+            exit;
+        }
+
+        $stmt = $db->prepare("UPDATE parts SET current_stock = ? WHERE id = ?");
+        $stmt->execute([$reverted_stock, $adj['part_id']]);
+
+        $stmt = $db->prepare("DELETE FROM inventory_adjustments WHERE id = ?");
+        $stmt->execute([$id]);
+
+        $db->commit();
+        jsonResponse(['success' => true]);
+    } catch (Exception $e) {
+        $db->rollBack();
+        jsonResponse(['error' => 'Failed to delete adjustment: ' . $e->getMessage()], 500);
     }
 }
 

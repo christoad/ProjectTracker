@@ -3519,6 +3519,40 @@
                                 </tbody>
                             </table>
                         ` : '<p style="color: var(--text-dim); text-align: center; padding: 2rem;">No orders yet. Click "+ Record Order" to log your first parts order.</p>'}
+                        <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h4>Stock Adjustments</h4>
+                            <button class="btn btn-primary btn-small" onclick="adjustStock(${part.id}); document.querySelector('.modal.active')?.remove();">+ Adjust Stock</button>
+                        </div>
+                        <p style="margin: -0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary);">
+                            Use this for stock that leaves or returns outside a normal purchase or sale — e.g. raw parts sent to JLCPCB for PCBA and consumed there, damage/loss, or a manual count correction.
+                        </p>
+                        ${part.adjustments && part.adjustments.length > 0 ? `
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Reason</th>
+                                        <th>Change</th>
+                                        <th>Note</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${part.adjustments.map(a => `
+                                        <tr>
+                                            <td>${a.created_at.split(' ')[0]}</td>
+                                            <td>${a.reason}</td>
+                                            <td style="color: ${a.quantity_change < 0 ? 'var(--danger)' : 'var(--success)'}; font-weight: 600;">${a.quantity_change > 0 ? '+' : ''}${a.quantity_change}</td>
+                                            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${a.note || '-'}</td>
+                                            <td>
+                                                <button class="btn btn-small btn-danger" onclick="deleteAdjustment(${a.id}, ${part.id})">Delete</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        ` : '<p style="color: var(--text-dim); text-align: center; padding: 1rem;">No adjustments recorded.</p>'}
                         <div class="mt-1">
                             <button class="btn" onclick="this.closest('.modal').remove()">Close</button>
                         </div>
@@ -3936,6 +3970,118 @@
                     alert('Error checking in inventory');
                 }
             });
+        }
+
+        function adjustStock(partId) {
+            const part = parts.find(p => p.id === partId);
+            const title = part ? `Adjust Stock: ${part.part_name}` : 'Adjust Stock';
+            const reasonPresets = [
+                'JLCPCB PCBA Consumption',
+                'Damaged / Lost',
+                'Manual Count Correction',
+                'Other'
+            ];
+
+            const modal = createModal(
+                title,
+                `
+                    <form id="adjustStockForm">
+                        <div class="form-group">
+                            <label class="form-label">Direction</label>
+                            <select id="adjustDirection" class="form-input">
+                                <option value="remove">Remove from stock</option>
+                                <option value="add">Add to stock</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Quantity</label>
+                            <input type="number" id="adjustQty" class="form-input" min="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Reason</label>
+                            <select id="adjustReasonPreset" class="form-input">
+                                ${reasonPresets.map(r => `<option value="${r}">${r}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="form-group" id="adjustReasonOtherGroup" style="display:none;">
+                            <label class="form-label">Specify Reason</label>
+                            <input type="text" id="adjustReasonOther" class="form-input" placeholder="e.g., Reworked into a different SKU">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Note</label>
+                            <textarea id="adjustNote" class="form-textarea" placeholder="e.g., Sent 400 units to JLCPCB for KH1 mainboard PCBA order #12345"></textarea>
+                        </div>
+                        <div class="flex flex-gap">
+                            <button type="submit" class="btn btn-primary">Save Adjustment</button>
+                            <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
+                        </div>
+                    </form>
+                `
+            );
+
+            const reasonPresetSelect = document.getElementById('adjustReasonPreset');
+            const reasonOtherGroup = document.getElementById('adjustReasonOtherGroup');
+            reasonPresetSelect.addEventListener('change', () => {
+                reasonOtherGroup.style.display = reasonPresetSelect.value === 'Other' ? 'block' : 'none';
+            });
+
+            document.getElementById('adjustStockForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const reason = reasonPresetSelect.value === 'Other'
+                    ? document.getElementById('adjustReasonOther').value.trim()
+                    : reasonPresetSelect.value;
+
+                if (!reason) {
+                    alert('Please specify a reason');
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('action', 'save_inventory_adjustment');
+                formData.append('part_id', partId);
+                formData.append('direction', document.getElementById('adjustDirection').value);
+                formData.append('quantity', document.getElementById('adjustQty').value);
+                formData.append('reason', reason);
+                formData.append('note', document.getElementById('adjustNote').value);
+
+                try {
+                    const response = await fetch('api.php', { method: 'POST', body: formData });
+                    const result = await response.json();
+                    if (result.error) {
+                        alert(result.error);
+                        return;
+                    }
+                    modal.remove();
+                    loadParts();
+                    loadDashboard();
+                    viewPart(partId);
+                } catch (error) {
+                    alert('Error saving stock adjustment');
+                }
+            });
+        }
+
+        async function deleteAdjustment(adjustmentId, partId) {
+            if (!confirm('Delete this adjustment? This will reverse its effect on current stock.')) return;
+
+            const formData = new FormData();
+            formData.append('action', 'delete_inventory_adjustment');
+            formData.append('id', adjustmentId);
+
+            try {
+                const response = await fetch('api.php', { method: 'POST', body: formData });
+                const result = await response.json();
+                if (result.error) {
+                    alert(result.error);
+                    return;
+                }
+                loadParts();
+                loadDashboard();
+                viewPart(partId);
+            } catch (error) {
+                alert('Error deleting adjustment');
+            }
         }
 
         async function cloneCheckin(checkinId, partId) {
