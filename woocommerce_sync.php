@@ -150,6 +150,52 @@ function wc_fetch_product_stock(int $wc_product_id): ?int {
     return isset($data['stock_quantity']) ? (int) $data['stock_quantity'] : null;
 }
 
+/** Fetch current regular_price for a WooCommerce product (parent/simple product). */
+function wc_fetch_product_price(int $wc_product_id): ?float {
+    $cfg = wc_get_config();
+    if (!$cfg) return null;
+
+    $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . $wc_product_id;
+    $ch  = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+        CURLOPT_TIMEOUT        => 10,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code !== 200) return null;
+    $data = json_decode($response, true);
+    return isset($data['regular_price']) && $data['regular_price'] !== '' ? (float) $data['regular_price'] : null;
+}
+
+/**
+ * Fetch current regular_price for a specific WooCommerce product variation.
+ * Variable products leave the parent's own regular_price blank — price lives
+ * on each variation — so this is what wc_pull_price uses for variable projects.
+ */
+function wc_fetch_variation_price(int $wc_product_id, int $wc_variation_id): ?float {
+    $cfg = wc_get_config();
+    if (!$cfg) return null;
+
+    $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . $wc_product_id . '/variations/' . $wc_variation_id;
+    $ch  = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+        CURLOPT_TIMEOUT        => 10,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code !== 200) return null;
+    $data = json_decode($response, true);
+    return isset($data['regular_price']) && $data['regular_price'] !== '' ? (float) $data['regular_price'] : null;
+}
+
 /** Fetch current stock_quantity for a specific WooCommerce product variation. */
 function wc_fetch_variation_stock_live(int $wc_product_id, int $wc_variation_id): ?int {
     $cfg = wc_get_config();
@@ -172,18 +218,20 @@ function wc_fetch_variation_stock_live(int $wc_product_id, int $wc_variation_id)
 }
 
 /**
- * Fetch stock_quantity for many products/variations via curl_multi, in small
- * concurrent batches. Requests one-at-a-time to the WooCommerce REST API is what
- * made "Check WC Status" take 30-40+ seconds with a couple dozen variations mapped.
- * Firing ALL of them fully in parallel trips WooCommerce/host rate-limiting though
- * (observed requests silently failing above ~20 at once), so we cap concurrency
- * and go in small waves — still far faster than one-at-a-time, without the drops.
+ * Fetch stock_quantity and regular_price for many products/variations via
+ * curl_multi, in small concurrent batches. Requests one-at-a-time to the
+ * WooCommerce REST API is what made "Check WC Status" take 30-40+ seconds with
+ * a couple dozen variations mapped. Firing ALL of them fully in parallel trips
+ * WooCommerce/host rate-limiting though (observed requests silently failing
+ * above ~20 at once), so we cap concurrency and go in small waves — still far
+ * faster than one-at-a-time, without the drops.
  *
  * $requests: [ key => ['product_id' => int, 'variation_id' => int|null], ... ]
- * Returns:   [ key => int|null ]
+ * Returns:   [ key => ['stock_quantity' => int|null, 'price' => float|null] ]
  */
 function wc_fetch_stock_batch(array $requests): array {
-    $results = array_fill_keys(array_keys($requests), null);
+    $empty   = ['stock_quantity' => null, 'price' => null];
+    $results = array_fill_keys(array_keys($requests), $empty);
     if (empty($requests)) return $results;
 
     $cfg = wc_get_config();
@@ -218,7 +266,11 @@ function wc_fetch_stock_batch(array $requests): array {
             $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             if ($http_code === 200) {
                 $data = json_decode(curl_multi_getcontent($ch), true);
-                $results[$key] = isset($data['stock_quantity']) ? (int) $data['stock_quantity'] : null;
+                $results[$key] = [
+                    'stock_quantity' => isset($data['stock_quantity']) ? (int) $data['stock_quantity'] : null,
+                    'price'          => isset($data['regular_price']) && $data['regular_price'] !== ''
+                        ? (float) $data['regular_price'] : null,
+                ];
             }
             curl_multi_remove_handle($mh, $ch);
             curl_close($ch);
@@ -627,10 +679,6 @@ function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
     $should_deduct  = in_array($wc_status, ['processing', 'on-hold']);
     $should_restore = in_array($wc_status, ['cancelled', 'refunded']);
 
-    if ($deductInventory && !$should_deduct && !$should_restore) {
-        return ['skipped' => true, 'wc_order_id' => $wc_order_id, 'reason' => "Status '$wc_status' requires no inventory action"];
-    }
-
     $order_number   = 'WC-' . $wc_order_id;
     $tracker_status = wc_map_order_status($wc_status);
     $customer       = trim(($wcOrder['billing']['first_name'] ?? '') . ' ' . ($wcOrder['billing']['last_name'] ?? ''));
@@ -643,6 +691,18 @@ function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
         $stmt = $db->prepare("SELECT id, status FROM orders WHERE wc_order_id = ? FOR UPDATE");
         $stmt->execute([$wc_order_id]);
         $existingOrder = $stmt->fetch();
+
+        // Nothing to do: order isn't tracked yet and this status requires no
+        // inventory action (e.g. a still-pending or failed order) — skip
+        // entirely rather than creating a placeholder row. An order that IS
+        // already tracked always gets its status/fields updated below, even
+        // for statuses like 'completed' that need no inventory action —
+        // otherwise a shipped order stuck waiting on its next status change
+        // (e.g. WC auto-completing it) would never be reflected here.
+        if ($deductInventory && !$existingOrder && !$should_deduct && !$should_restore) {
+            $db->rollBack();
+            return ['skipped' => true, 'wc_order_id' => $wc_order_id, 'reason' => "Status '$wc_status' requires no inventory action"];
+        }
 
         $orderFields = [
             'order_number'    => $order_number,
@@ -657,11 +717,12 @@ function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
             'source'          => 'woocommerce',
         ];
 
-        // Don't regress a status already advanced by Shippo (shipped) unless this
-        // update is a cancellation — reconciliation always reflects WC's own status.
+        // Don't regress a status already advanced by Shippo (shipped) back down to
+        // paid/pending — but do allow it to move forward to completed, or to
+        // cancelled — reconciliation always reflects WC's own status otherwise.
         $set_status = true;
         if ($deductInventory && $existingOrder && $existingOrder['status'] === 'shipped') {
-            $set_status = ($tracker_status === 'cancelled');
+            $set_status = in_array($tracker_status, ['completed', 'cancelled']);
         }
 
         if (!$existingOrder) {

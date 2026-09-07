@@ -1786,6 +1786,24 @@
                 }
 
                 let anyMismatch = false;
+                let anyPriceMismatch = false;
+
+                function priceLine(p) {
+                    if (!p.price_match) anyPriceMismatch = true;
+                    const cellId  = `wcprice_${p.project_id}`;
+                    const wcVal   = p.wc_price !== null && p.wc_price !== undefined ? '$' + Number(p.wc_price).toFixed(2) : '?';
+                    const trkVal  = '$' + Number(p.tracker_price || 0).toFixed(2);
+                    const icon    = p.price_match ? '✓' : '⚠';
+                    const color   = p.price_match ? 'var(--success)' : 'var(--warning)';
+                    const pullBtn = !p.price_match && p.wc_price !== null
+                        ? `<button class="btn btn-small" onclick="wcPullPrice(${p.project_id}, '${cellId}')" style="font-size:9px;padding:1px 5px;margin-left:4px;">Pull from WC</button>`
+                        : '';
+                    return `<div id="${cellId}" style="font-weight:400;font-size:10.5px;color:var(--text-secondary);margin-top:2px;">
+                        Price: <span style="font-family:var(--font-mono);">${trkVal}</span> tracker vs <span style="font-family:var(--font-mono);">${wcVal}</span> WC
+                        <span style="color:${color};font-weight:700;">${icon}</span>${pullBtn}
+                    </div>`;
+                }
+
                 const rows = data.flatMap(p => {
                     if (p.variable) {
                         return (p.variations || []).map((v, i) => {
@@ -1796,7 +1814,7 @@
                             const qtyColor = v.tracker_qty > 0 ? 'var(--success)' : 'var(--danger)';
                             const cellId = `wcqty_${p.project_id}_${v.variation_id}`;
                             return `<tr style="${i === 0 ? 'border-top:1px solid var(--border-card)' : ''}">
-                                <td style="padding:6px 8px;font-weight:600;${i > 0 ? 'color:transparent;font-size:0px;padding-top:0' : ''}">${i === 0 ? p.project_name : ''}</td>
+                                <td style="padding:6px 8px;font-weight:600;${i > 0 ? 'color:transparent;font-size:0px;padding-top:0' : ''}">${i === 0 ? p.project_name + priceLine(p) : ''}</td>
                                 <td style="padding:6px 8px;color:var(--text-secondary);font-size:11px;">${v.combo}</td>
                                 <td style="padding:6px 8px;font-family:var(--font-mono);color:${qtyColor}">${v.tracker_qty}</td>
                                 <td id="${cellId}" style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
@@ -1812,7 +1830,7 @@
                         const qtyColor = p.calculated_available_qty > 0 ? 'var(--success)' : 'var(--danger)';
                         const cellId = `wcqty_${p.project_id}_0`;
                         return [`<tr style="border-top:1px solid var(--border-card)">
-                            <td style="padding:6px 8px;font-weight:600">${p.project_name}</td>
+                            <td style="padding:6px 8px;font-weight:600">${p.project_name}${priceLine(p)}</td>
                             <td style="padding:6px 8px;color:var(--text-secondary);font-size:11px;">—</td>
                             <td style="padding:6px 8px;font-family:var(--font-mono);color:${qtyColor}">${p.calculated_available_qty}</td>
                             <td id="${cellId}" style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
@@ -1836,8 +1854,9 @@
                         </thead>
                         <tbody>${rows}</tbody>
                     </table>
-                    ${anyMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some quantities are out of sync — use the Sync buttons above, or Sync All.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All quantities match WooCommerce.</div>'}
-                    <div style="padding:6px 0 0;font-size:11px;color:var(--text-dim);">Edit lets you type a number and push it straight to WooCommerce — it does not change the tracker's calculated quantity.</div>`);
+                    ${anyMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some stock quantities are out of sync — use the Sync buttons above, or Sync All.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All quantities match WooCommerce.</div>'}
+                    ${anyPriceMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some retail prices do not match WooCommerce — use "Pull from WC" under the project name to update the tracker.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All tracker retail prices match WooCommerce.</div>'}
+                    <div style="padding:6px 0 0;font-size:11px;color:var(--text-dim);">Edit lets you type a stock number and push it straight to WooCommerce — it does not change the tracker's calculated quantity. Pull from WC copies WooCommerce's live price into the tracker's retail price (used for margin and unrealized-revenue calculations, and as the default on manual orders).</div>`);
             } catch(e) {
                 wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
             } finally {
@@ -1888,6 +1907,30 @@
             } catch(e) {
                 cell.style.color = 'var(--danger)';
                 cell.textContent = '⚠ ' + e.message;
+            }
+        }
+
+        async function wcPullPrice(projectId, cellId) {
+            const cell = document.getElementById(cellId);
+            if (!cell) return;
+            const orig = cell.innerHTML;
+            cell.innerHTML = '<span style="color:var(--text-dim);">Pulling…</span>';
+            try {
+                const formData = new FormData();
+                formData.append('action', 'wc_pull_price');
+                formData.append('project_id', projectId);
+                const r = await fetch('api.php', { method: 'POST', body: formData });
+                const data = await r.json();
+                if (data.success) {
+                    cell.innerHTML = `Price: <span style="font-family:var(--font-mono);">$${Number(data.new_price).toFixed(2)}</span> tracker vs <span style="font-family:var(--font-mono);">$${Number(data.new_price).toFixed(2)}</span> WC <span style="color:var(--success);font-weight:700;">✓</span>`;
+                    loadProjects();
+                } else {
+                    cell.innerHTML = orig;
+                    alert('Could not pull price: ' + (data.error || 'unknown error'));
+                }
+            } catch(e) {
+                cell.innerHTML = orig;
+                alert('Could not pull price: ' + e.message);
             }
         }
 

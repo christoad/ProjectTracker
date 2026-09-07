@@ -474,12 +474,12 @@ if ($action === 'get_trashed_projects') {
 
 // WooCommerce sync — proxied through api.php so browser content blockers
 // don't flag the woocommerce_webhook.php URL pattern.
-if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_stock'])) {
+if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_stock', 'wc_pull_price'])) {
     require_once 'woocommerce_sync.php';
 
     if ($action === 'wc_status') {
         $stmt = $db->query("
-            SELECT id, project_name, woocommerce_product_id, status
+            SELECT id, project_name, woocommerce_product_id, status, retail_price
             FROM projects
             WHERE woocommerce_product_id IS NOT NULL AND status NOT IN ('archived', 'trashed')
             ORDER BY project_name
@@ -492,6 +492,7 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
         $requests = [];
         foreach ($projects as $p) {
             $wc_product_id = (int) $p['woocommerce_product_id'];
+            $tracker_price = (float) $p['retail_price'];
 
             $vstmt = $db->prepare("
                 SELECT combo_key, wc_variation_id
@@ -502,6 +503,12 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
             $mappings = $vstmt->fetchAll();
 
             if (!empty($mappings)) {
+                // Price lives on the project as a single value. WooCommerce leaves a
+                // variable product's own regular_price blank (price is set per-variation),
+                // so use the first variation's price as the project's effective price —
+                // it's already being fetched for stock, so this adds no extra request.
+                $priceReqKey = 'v' . $p['id'] . '_' . $mappings[0]['wc_variation_id'];
+
                 $variations = [];
                 foreach ($mappings as $m) {
                     // Pass combo_key as raw string — wc_calculate_variation_qty parses internally
@@ -522,8 +529,12 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
                     'variable'       => true,
                     'variations'     => $variations,
                     'project_status' => $p['status'],
+                    'tracker_price'  => $tracker_price,
+                    'price_req_key'  => $priceReqKey,
                 ];
             } else {
+                // Simple product: the stock request below already hits the product
+                // endpoint, which also carries price — reuse it instead of a second call.
                 $tracker_qty = wc_calculate_available_qty($db, $p['id']);
                 $reqKey = 'p' . $p['id'];
                 $requests[$reqKey] = ['product_id' => $wc_product_id, 'variation_id' => null];
@@ -534,25 +545,32 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
                     'calculated_available_qty' => $tracker_qty,
                     'req_key'                  => $reqKey,
                     'project_status'           => $p['status'],
+                    'tracker_price'            => $tracker_price,
+                    'price_req_key'            => $reqKey,
                 ];
             }
         }
 
-        $wcStock = wc_fetch_stock_batch($requests);
+        $wcData = wc_fetch_stock_batch($requests);
 
         // Pass 2: stitch the live results back onto the prepped rows.
         $out = [];
         foreach ($prepped as $row) {
+            $wc_price = $wcData[$row['price_req_key']]['price'] ?? null;
+            $row['wc_price']    = $wc_price;
+            $row['price_match'] = $wc_price !== null && round($wc_price, 2) === round($row['tracker_price'], 2);
+            unset($row['price_req_key']);
+
             if (!empty($row['variable'])) {
                 foreach ($row['variations'] as &$v) {
-                    $wc_qty = $wcStock[$v['req_key']] ?? null;
+                    $wc_qty = $wcData[$v['req_key']]['stock_quantity'] ?? null;
                     $v['wc_qty'] = $wc_qty;
                     $v['match']  = $wc_qty !== null && $wc_qty === $v['tracker_qty'];
                     unset($v['req_key']);
                 }
                 unset($v);
             } else {
-                $wc_qty = $wcStock[$row['req_key']] ?? null;
+                $wc_qty = $wcData[$row['req_key']]['stock_quantity'] ?? null;
                 $row['wc_stock_qty'] = $wc_qty;
                 $row['match']        = $wc_qty !== null && $wc_qty === $row['calculated_available_qty'];
             }
@@ -597,6 +615,42 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
         ]);
 
         jsonResponse($result);
+    }
+
+    if ($action === 'wc_pull_price') {
+        $project_id = (int)($_POST['project_id'] ?? 0);
+        if ($project_id <= 0) {
+            jsonResponse(['error' => 'Invalid project'], 400);
+        }
+
+        $stmt = $db->prepare("SELECT woocommerce_product_id FROM projects WHERE id = ?");
+        $stmt->execute([$project_id]);
+        $wc_product_id = $stmt->fetchColumn();
+        if (!$wc_product_id) {
+            jsonResponse(['error' => 'Project is not mapped to a WooCommerce product'], 400);
+        }
+
+        // Variable products leave the parent's own price blank — pull from the
+        // first mapped variation instead, same as the wc_status comparison does.
+        $vstmt = $db->prepare("SELECT wc_variation_id FROM project_variation_mappings WHERE project_id = ? AND wc_variation_id IS NOT NULL LIMIT 1");
+        $vstmt->execute([$project_id]);
+        $wc_variation_id = $vstmt->fetchColumn();
+
+        $price = $wc_variation_id
+            ? wc_fetch_variation_price($wc_product_id, $wc_variation_id)
+            : wc_fetch_product_price($wc_product_id);
+        if ($price === null) {
+            jsonResponse(['error' => 'Could not fetch a live price from WooCommerce']);
+        }
+
+        $upd = $db->prepare("UPDATE projects SET retail_price = ? WHERE id = ?");
+        $upd->execute([$price, $project_id]);
+
+        wc_log('info', 'Pulled retail price from WooCommerce', [
+            'project_id' => $project_id, 'new_price' => $price,
+        ]);
+
+        jsonResponse(['success' => true, 'new_price' => $price]);
     }
 
     if ($action === 'wc_sync_log') {

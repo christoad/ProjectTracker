@@ -130,12 +130,14 @@ if (!$tracking_number || !$order_ref) {
 }
 
 // Resolve WooCommerce order ID from the Shippo order reference.
-// Shippo's WooCommerce integration stores the WC order ID as shop_order_id.
+// Shippo's WooCommerce integration stores the WC order ID in the order's
+// order_number field (a plain numeric string, e.g. "280") — there is no
+// shop_order_id field on the Shippo Order object.
 // The order field may be an expanded object or a plain string ID.
 $wc_order_id = null;
 
-if (is_array($order_ref) && isset($order_ref['shop_order_id'])) {
-    $wc_order_id = (int) $order_ref['shop_order_id'];
+if (is_array($order_ref) && isset($order_ref['order_number'])) {
+    $wc_order_id = (int) $order_ref['order_number'];
 } elseif (is_string($order_ref) && $order_ref !== '') {
     $shippo_token = $env['SHIPPO_API_TOKEN'] ?? '';
     if (!$shippo_token) {
@@ -153,8 +155,8 @@ if (is_array($order_ref) && isset($order_ref['shop_order_id'])) {
     $shippo_order = json_decode(curl_exec($ch), true);
     curl_close($ch);
 
-    $wc_order_id = isset($shippo_order['shop_order_id'])
-        ? (int) $shippo_order['shop_order_id']
+    $wc_order_id = isset($shippo_order['order_number'])
+        ? (int) $shippo_order['order_number']
         : null;
 }
 
