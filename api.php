@@ -1857,12 +1857,15 @@ if ($action === 'kh1_beta_list') {
             s.created_at,
             COUNT(r.id)                                          AS steps_saved,
             SUM(r.rating = 3)                                    AS trouble_count,
+            SUM(r.reviewed = 0)                                  AS unreviewed_count,
             MAX(r.updated_at)                                    AS last_active
         FROM kh1_beta_sessions s
         LEFT JOIN kh1_beta_responses r ON r.callsign = s.callsign
         GROUP BY s.callsign, s.email, s.created_at
         ORDER BY last_active DESC
     ")->fetchAll();
+
+    $total_unreviewed = (int) $db->query("SELECT COUNT(*) FROM kh1_beta_responses WHERE reviewed = 0")->fetchColumn();
 
     // Step-level issue summary (count of 'had trouble' per step across all builders)
     $step_issues = $db->query("
@@ -1884,7 +1887,7 @@ if ($action === 'kh1_beta_list') {
         WHERE step_key = 'packaging'
     ")->fetch();
 
-    jsonResponse(['builders' => $builders, 'step_issues' => $step_issues, 'packaging' => $pkg]);
+    jsonResponse(['builders' => $builders, 'step_issues' => $step_issues, 'packaging' => $pkg, 'total_unreviewed' => $total_unreviewed]);
 }
 
 if ($action === 'kh1_beta_detail') {
@@ -1929,6 +1932,41 @@ if ($action === 'kh1_beta_save_reply') {
     ");
     $stmt->execute([$callsign, $step_key, $reply]);
     jsonResponse(['success' => true]);
+}
+
+if ($action === 'kh1_beta_mark_reviewed') {
+    $KH1_STEPS = [
+        'packaging','step01','step02','step03','step04','step05','step06','step07',
+        'step08','step09','step10','step11','step12','step13','step14','step15',
+        'step16','step17','general'
+    ];
+    $callsign = strtoupper(preg_replace('/[^A-Za-z0-9\/]/', '', $_POST['callsign'] ?? ''));
+    $step_key = $_POST['step_key'] ?? '';
+    $reviewed = (int)(bool)($_POST['reviewed'] ?? 0);
+    if (strlen($callsign) < 3 || !in_array($step_key, $KH1_STEPS, true)) {
+        jsonResponse(['error' => 'Invalid callsign or step'], 400);
+    }
+    $stmt = $db->prepare("
+        UPDATE kh1_beta_responses
+        SET reviewed = ?, reviewed_at = ?
+        WHERE callsign = ? AND step_key = ?
+    ");
+    $stmt->execute([$reviewed, $reviewed ? date('Y-m-d H:i:s') : null, $callsign, $step_key]);
+    jsonResponse(['success' => true]);
+}
+
+if ($action === 'kh1_beta_mark_all_reviewed') {
+    $callsign = strtoupper(preg_replace('/[^A-Za-z0-9\/]/', '', $_POST['callsign'] ?? ''));
+    if (strlen($callsign) < 3) {
+        jsonResponse(['error' => 'Invalid callsign'], 400);
+    }
+    $stmt = $db->prepare("
+        UPDATE kh1_beta_responses
+        SET reviewed = 1, reviewed_at = NOW()
+        WHERE callsign = ? AND reviewed = 0
+    ");
+    $stmt->execute([$callsign]);
+    jsonResponse(['success' => true, 'marked' => $stmt->rowCount()]);
 }
 
 jsonResponse(['error' => 'Invalid action'], 400);

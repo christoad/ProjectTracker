@@ -1353,12 +1353,13 @@
                                     <th>Callsign</th>
                                     <th>Steps Saved</th>
                                     <th>Issues Flagged</th>
+                                    <th>Review Status</th>
                                     <th>Last Active</th>
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody id="betaBuilderBody">
-                                <tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-dim);">Loading…</td></tr>
+                                <tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-dim);">Loading…</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1372,7 +1373,10 @@
                                 <div style="font-family:var(--font-mono);font-size:0.7rem;letter-spacing:0.12em;color:var(--text-dim);text-transform:uppercase;">Beta Builder</div>
                                 <div id="betaDetailCallsign" style="font-family:var(--font-mono);font-size:1.1rem;font-weight:600;color:var(--text-primary);"></div>
                             </div>
-                            <button onclick="closeBetaDetail()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-dim);padding:4px 8px;">×</button>
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <button class="btn btn-secondary" style="font-size:0.75rem;padding:4px 10px;" onclick="markAllBetaReviewed()">✓ Mark All Reviewed</button>
+                                <button onclick="closeBetaDetail()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-dim);padding:4px 8px;">×</button>
+                            </div>
                         </div>
                         <div id="betaDetailBody" style="overflow-y:auto;padding:16px 20px;flex:1;"></div>
                     </div>
@@ -5200,10 +5204,12 @@
                 ? Math.round(builders.reduce((s,b) => s + parseInt(b.steps_saved||0), 0) / totalBuilders / TOTAL_STEPS * 100)
                 : 0;
 
+            const totalUnreviewed = parseInt(data.total_unreviewed || 0);
             document.getElementById('betaSummaryCards').innerHTML = `
                 <div class="stat-card"><div class="stat-value">${totalBuilders}</div><div class="stat-label">Builders</div></div>
                 <div class="stat-card"><div class="stat-value">${avgCompletion}%</div><div class="stat-label">Avg. Completion</div></div>
                 <div class="stat-card stat-low"><div class="stat-value">${totalIssues}</div><div class="stat-label">Steps w/ Trouble</div></div>
+                <div class="stat-card ${totalUnreviewed > 0 ? 'stat-low' : ''}"><div class="stat-value">${totalUnreviewed}</div><div class="stat-label">Needs Review</div></div>
             `;
 
             // Packaging alert
@@ -5235,19 +5241,23 @@
             // Builder table
             if (!builders.length) {
                 document.getElementById('betaBuilderBody').innerHTML =
-                    '<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-dim);">No beta builders have submitted feedback yet.</td></tr>';
+                    '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-dim);">No beta builders have submitted feedback yet.</td></tr>';
                 return;
             }
             document.getElementById('betaBuilderBody').innerHTML = builders.map(b => {
                 const issues = parseInt(b.trouble_count||0);
                 const saved  = parseInt(b.steps_saved||0);
+                const unreviewed = parseInt(b.unreviewed_count||0);
                 const lastAgo = b.last_active ? timeAgo(b.last_active) : '—';
-                return `<tr>
+                return `<tr style="${unreviewed > 0 ? 'background:#fffbeb;' : ''}">
                     <td style="font-family:var(--font-mono);font-weight:600;">${escHtml(b.callsign)}</td>
                     <td>${saved} / ${TOTAL_STEPS}</td>
                     <td>${issues > 0
                         ? `<span style="color:#ef4444;font-weight:600;">⚠️ ${issues}</span>`
                         : `<span style="color:#10b981;">✓ 0</span>`}</td>
+                    <td>${unreviewed > 0
+                        ? `<span style="color:#b45309;font-weight:600;">● ${unreviewed} new</span>`
+                        : `<span style="color:#10b981;">✓ Reviewed</span>`}</td>
                     <td style="color:var(--text-dim);font-size:0.85rem;">${escHtml(lastAgo)}</td>
                     <td><button class="btn btn-secondary" style="font-size:0.78rem;padding:4px 10px;"
                         onclick="openBetaDetail('${escHtml(b.callsign)}')">View →</button></td>
@@ -5255,7 +5265,10 @@
             }).join('');
         }
 
+        let currentBetaCallsign = null;
+
         async function openBetaDetail(callsign) {
+            currentBetaCallsign = callsign;
             document.getElementById('betaDetailCallsign').textContent = callsign;
             document.getElementById('betaDetailBody').innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-dim);">Loading…</div>';
             document.getElementById('betaDetailModal').style.display = 'flex';
@@ -5313,9 +5326,21 @@
                     : '';
 
                 const replyVal = (r && r.admin_reply) ? r.admin_reply : '';
+                const isReviewed = !!(r && parseInt(r.reviewed) === 1);
+
+                const reviewedToggle = r ? `
+                    <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;color:${isReviewed ? 'var(--success)' : '#b45309'};cursor:pointer;flex-shrink:0;white-space:nowrap;">
+                        <input type="checkbox" id="reviewed_${key}" ${isReviewed ? 'checked' : ''}
+                            onchange="markStepReviewed('${escHtml(callsign)}','${key}', this.checked)"
+                            style="width:14px;height:14px;cursor:pointer;">
+                        Reviewed
+                    </label>` : '';
 
                 html += `<div style="padding:10px 0;border-bottom:1px solid var(--border-card);">
-                    <div style="font-size:0.84rem;font-weight:600;color:var(--text-primary);">${escHtml(label)}</div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                        <div style="font-size:0.84rem;font-weight:600;color:var(--text-primary);">${escHtml(label)}</div>
+                        ${reviewedToggle}
+                    </div>
                     ${detail}
                     ${buildTime}
                     ${r && r.feedback ? `<div style="font-size:0.84rem;color:var(--text-secondary);margin-top:5px;font-style:italic;">"${escHtml(r.feedback)}"</div>` : ''}
@@ -5354,6 +5379,40 @@
                 }
             } catch(e) {
                 alert('Could not save reply. Please try again.');
+            }
+        }
+
+        async function markStepReviewed(callsign, stepKey, checked) {
+            const label = document.querySelector(`#reviewed_${stepKey}`)?.closest('label');
+            const fd = new FormData();
+            fd.append('action', 'kh1_beta_mark_reviewed');
+            fd.append('callsign', callsign);
+            fd.append('step_key', stepKey);
+            fd.append('reviewed', checked ? '1' : '0');
+            try {
+                const resp = await fetch('api.php', { method: 'POST', body: fd });
+                const d = await resp.json();
+                if (!d.success) { alert(d.error || 'Could not update review status.'); return; }
+                if (label) label.style.color = checked ? 'var(--success)' : '#b45309';
+                loadBetaFeedback();
+            } catch(e) {
+                alert('Could not update review status. Please try again.');
+            }
+        }
+
+        async function markAllBetaReviewed() {
+            if (!currentBetaCallsign) return;
+            const fd = new FormData();
+            fd.append('action', 'kh1_beta_mark_all_reviewed');
+            fd.append('callsign', currentBetaCallsign);
+            try {
+                const resp = await fetch('api.php', { method: 'POST', body: fd });
+                const d = await resp.json();
+                if (!d.success) { alert(d.error || 'Could not mark reviewed.'); return; }
+                openBetaDetail(currentBetaCallsign);
+                loadBetaFeedback();
+            } catch(e) {
+                alert('Could not mark reviewed. Please try again.');
             }
         }
 

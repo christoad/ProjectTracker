@@ -60,6 +60,8 @@ if ($action === 'save_response') {
             tools_in_box         = VALUES(tools_in_box),
             parts_undamaged      = VALUES(parts_undamaged),
             build_time_estimate  = VALUES(build_time_estimate),
+            reviewed             = 0,
+            reviewed_at          = NULL,
             updated_at           = NOW()
     ");
     $stmt->execute([$callsign, $step_key, $rating, $feedback, $pkg_intact, $tools_in_box, $parts_undamaged, $build_time]);
