@@ -2124,6 +2124,7 @@
             filtered = sortData(filtered, sortState.parts.column, sortState.parts.direction);
 
             const tbody = document.querySelector('#partsTable tbody');
+            if (!tbody) return;
             tbody.innerHTML = filtered.map(p => {
                 const stockClass = p.current_stock <= p.min_stock_level ? 'stock-low' : 'stock-ok';
                 return `
@@ -3726,7 +3727,12 @@
             formData.append('part_id', partId);
 
             try {
-                await fetch('api.php', { method: 'POST', body: formData });
+                const resp = await fetch('api.php', { method: 'POST', body: formData });
+                const result = await resp.json();
+                if (result.error) {
+                    alert(result.error);
+                    return;
+                }
                 document.querySelector('.modal.active')?.remove();
                 viewPart(partId);
             } catch (error) {
@@ -3816,7 +3822,12 @@
                     formData.append('notes', document.getElementById('editCheckinNotes').value);
 
                     try {
-                        await fetch('api.php', { method: 'POST', body: formData });
+                        const resp = await fetch('api.php', { method: 'POST', body: formData });
+                        const result = await resp.json();
+                        if (result.error) {
+                            alert(result.error);
+                            return;
+                        }
                         modal.remove();
                         document.querySelector('.modal.active')?.remove();
                         viewPart(partId);
@@ -3956,7 +3967,12 @@
                 formData.append('received', document.getElementById('checkinReceived').checked ? '1' : '0');
 
                 try {
-                    await fetch('api.php', { method: 'POST', body: formData });
+                    const resp = await fetch('api.php', { method: 'POST', body: formData });
+                    const result = await resp.json();
+                    if (result.error) {
+                        alert(result.error);
+                        return;
+                    }
                     modal.remove();
                     loadParts();
                     loadDashboard();
@@ -4189,8 +4205,15 @@
                     formData.append('received', document.getElementById('cloneCheckinReceived').checked ? '1' : '0');
 
                     try {
-                        await fetch('api.php', { method: 'POST', body: formData });
+                        const resp = await fetch('api.php', { method: 'POST', body: formData });
+                        const result = await resp.json();
+                        if (result.error) {
+                            alert(result.error);
+                            return;
+                        }
                         modal.remove();
+                        document.querySelector('.modal.active')?.remove();
+                        viewPart(partId);
                         loadParts();
                         loadDashboard();
                     } catch (err) {
