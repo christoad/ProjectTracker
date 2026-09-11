@@ -990,6 +990,7 @@
                             <button class="btn btn-small" data-bt-preset="25" onclick="setBottleneckTarget(25)">25 kits</button>
                             <button class="btn btn-small" data-bt-preset="50" onclick="setBottleneckTarget(50)" style="background:var(--accent-primary);color:white;border-color:var(--accent-primary);">50 kits</button>
                             <button class="btn btn-small" data-bt-preset="100" onclick="setBottleneckTarget(100)">100 kits</button>
+                            <button class="btn btn-small" data-bt-preset="250" onclick="setBottleneckTarget(250)">250 kits</button>
                             <button class="btn btn-small" data-bt-preset="max" onclick="setBottleneckTarget('max')">Match Max</button>
                         </div>
                     </div>
@@ -1568,6 +1569,13 @@
             else bottleneckExpandedProjects.delete(projectId);
         }
 
+        // A part's stock plus whatever's already on order from a supplier but not yet received —
+        // parts inbound shouldn't trigger "order more" alarms.
+        function bottleneckEffectiveBuildable(part) {
+            if (!part.quantity_required) return Infinity;
+            return Math.floor((part.current_stock + (part.pending_qty || 0)) / part.quantity_required);
+        }
+
         function renderBottleneckInsights() {
             const container = document.getElementById('bottleneckInsights');
             const insights = bottleneckInsightsData;
@@ -1577,10 +1585,11 @@
             }
 
             // On first render, auto-expand projects that have parts needing ordering
+            // (accounting for stock already on the way from a supplier)
             if (!bottleneckInitialized) {
                 insights.forEach(proj => {
                     const t = bottleneckTarget === 'max' ? proj.max_buildable : bottleneckTarget;
-                    if (proj.all_fixed_parts.some(p => p.buildable < t)) {
+                    if (proj.all_fixed_parts.some(p => bottleneckEffectiveBuildable(p) < t)) {
                         bottleneckExpandedProjects.add(proj.project_id);
                     }
                 });
@@ -1597,23 +1606,32 @@
 
                 const partsRows = parts.map(part => {
                     const isBottleneck = part.buildable === b;
-                    const needsOrder = part.buildable < effectiveTarget;
-                    const unitsNeeded = needsOrder ? Math.max(0, effectiveTarget * part.quantity_required - part.current_stock) : 0;
+                    const pendingQty = part.pending_qty || 0;
+                    const effectiveBuildable = bottleneckEffectiveBuildable(part);
+                    const needsOrder = effectiveBuildable < effectiveTarget;
+                    const unitsNeeded = needsOrder
+                        ? Math.max(0, effectiveTarget * part.quantity_required - part.current_stock - pendingQty)
+                        : 0;
                     const barPct = Math.min(100, (part.buildable / barCeiling) * 100).toFixed(1);
                     const targetPct = Math.min(100, (effectiveTarget / barCeiling) * 100).toFixed(1);
                     const barColor = isBottleneck ? '#ef4444' : needsOrder ? '#f59e0b' : '#10b981';
                     const rowBg = isBottleneck ? 'rgba(239,68,68,0.04)' : '';
 
+                    const pendingNote = pendingQty > 0
+                        ? `<br><span style="color:var(--info);font-size:0.72rem;">+${pendingQty.toLocaleString()} on order</span>` : '';
+
                     let orderCell;
                     if (!needsOrder) {
-                        orderCell = `<span style="color:var(--success);font-size:0.82rem;">✓ ok</span>`;
+                        orderCell = pendingQty > 0 && part.buildable < effectiveTarget
+                            ? `<span style="color:var(--success);font-size:0.82rem;">✓ covered by order</span>${pendingNote}`
+                            : `<span style="color:var(--success);font-size:0.82rem;">✓ ok</span>`;
                     } else {
                         const costStr = part.unit_cost > 0
                             ? ` <span style="color:var(--text-secondary);font-size:0.78rem;">~$${(unitsNeeded * part.unit_cost).toFixed(2)}</span>` : '';
                         const urgStyle = isBottleneck
                             ? 'color:var(--danger);font-weight:700;'
                             : 'color:var(--warning);font-weight:600;';
-                        orderCell = `<span style="${urgStyle}">${unitsNeeded.toLocaleString()} units</span>${costStr}`;
+                        orderCell = `<span style="${urgStyle}">${unitsNeeded.toLocaleString()} units</span>${costStr}${pendingNote}`;
                     }
 
                     const partNameStyle = needsOrder
@@ -1641,9 +1659,9 @@
                     </tr>`;
                 }).join('');
 
-                const neededParts = parts.filter(p => p.buildable < effectiveTarget);
+                const neededParts = parts.filter(p => bottleneckEffectiveBuildable(p) < effectiveTarget);
                 const totalCost = neededParts.reduce((sum, p) => {
-                    if (p.unit_cost > 0) sum += Math.max(0, effectiveTarget * p.quantity_required - p.current_stock) * p.unit_cost;
+                    if (p.unit_cost > 0) sum += Math.max(0, effectiveTarget * p.quantity_required - p.current_stock - (p.pending_qty || 0)) * p.unit_cost;
                     return sum;
                 }, 0);
                 const targetLabel = bottleneckTarget === 'max' ? 'max' : `${effectiveTarget} kits`;

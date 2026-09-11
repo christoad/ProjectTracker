@@ -98,7 +98,8 @@ if ($action === 'get_dashboard') {
             p.current_stock,
             p.weighted_avg_cost,
             (SELECT cost  FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) AS preferred_cost,
-            (SELECT MIN(cost) FROM part_sources ps WHERE ps.part_id = p.id) AS lowest_cost
+            (SELECT MIN(cost) FROM part_sources ps WHERE ps.part_id = p.id) AS lowest_cost,
+            (SELECT COALESCE(SUM(ic.quantity), 0) FROM inventory_checkins ic WHERE ic.part_id = p.id AND ic.received = 0) AS pending_qty
         FROM projects proj
         JOIN project_parts pp ON proj.id = pp.project_id
         JOIN parts p          ON pp.part_id = p.id
@@ -164,6 +165,7 @@ if ($action === 'get_dashboard') {
             'part_name'         => $r['part_name'],
             'part_number'       => $r['part_number'],
             'current_stock'     => (int) $r['current_stock'],
+            'pending_qty'       => (int) $r['pending_qty'],
             'quantity_required' => (int) $r['quantity_required'],
             'buildable'         => (int) $r['buildable'],
             'unit_cost'         => (float) $r['unit_cost'],
