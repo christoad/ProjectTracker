@@ -45,6 +45,21 @@ if ($action === 'check_auth') {
 // All other actions require authentication
 requireLogin();
 
+// Projected unit cost for BOM/margin estimates: a true weighted average across stock
+// actually on hand (at its weighted_avg_cost) PLUS parts already on order but not yet
+// received (at their real ordered cost) — pending orders have a known, real cost even
+// though they haven't landed yet, so ignoring them understates near-term cost changes
+// (e.g. a supplier price increase reflected in the next shipment). Falls back to
+// supplier pricing only when there's no stock and nothing pending.
+function bom_projected_unit_cost($currentStock, $weightedAvgCost, $pendingQty, $pendingValue, $preferredCost, $lowestCost) {
+    $totalQty = (float) $currentStock + (float) $pendingQty;
+    if ($totalQty > 0) {
+        $totalValue = ((float) $currentStock * (float) $weightedAvgCost) + (float) $pendingValue;
+        return $totalValue / $totalQty;
+    }
+    return (float) ($preferredCost ?? $lowestCost ?? 0);
+}
+
 // Dashboard
 if ($action === 'get_dashboard') {
     $stats = [
@@ -90,6 +105,7 @@ if ($action === 'get_dashboard') {
             proj.project_name,
             proj.retail_price,
             pp.quantity_required,
+            pp.cost_override,
             pp.variation_attribute,
             pp.variation_value,
             p.id             AS part_id,
@@ -99,7 +115,8 @@ if ($action === 'get_dashboard') {
             p.weighted_avg_cost,
             (SELECT cost  FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) AS preferred_cost,
             (SELECT MIN(cost) FROM part_sources ps WHERE ps.part_id = p.id) AS lowest_cost,
-            (SELECT COALESCE(SUM(ic.quantity), 0) FROM inventory_checkins ic WHERE ic.part_id = p.id AND ic.received = 0) AS pending_qty
+            (SELECT COALESCE(SUM(ic.quantity), 0) FROM inventory_checkins ic WHERE ic.part_id = p.id AND ic.received = 0) AS pending_qty,
+            (SELECT COALESCE(SUM(ic.quantity * ic.unit_cost), 0) FROM inventory_checkins ic WHERE ic.part_id = p.id AND ic.received = 0) AS pending_value
         FROM projects proj
         JOIN project_parts pp ON proj.id = pp.project_id
         JOIN parts p          ON pp.part_id = p.id
@@ -129,9 +146,13 @@ if ($action === 'get_dashboard') {
         // Annotate every BOM row (fixed AND variable) with its own buildable count and unit cost
         foreach ($rows as &$r) {
             $r['buildable']  = (int) floor($r['current_stock'] / $r['quantity_required']);
-            $r['unit_cost']  = $r['weighted_avg_cost'] > 0
-                ? (float) $r['weighted_avg_cost']
-                : (float) ($r['preferred_cost'] ?? $r['lowest_cost'] ?? 0);
+            $r['unit_cost']  = $r['cost_override'] !== null
+                ? (float) $r['cost_override']
+                : bom_projected_unit_cost(
+                    $r['current_stock'], $r['weighted_avg_cost'],
+                    $r['pending_qty'], $r['pending_value'],
+                    $r['preferred_cost'], $r['lowest_cost']
+                );
         }
         unset($r);
 
@@ -259,7 +280,9 @@ if ($action === 'get_project') {
                    (SELECT supplier_name FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) as preferred_supplier,
                    (SELECT supplier_part_number FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) as preferred_supplier_pn,
                    (SELECT manufacturer_part_number FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) as preferred_mfr_pn,
-                   (SELECT url FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) as preferred_url
+                   (SELECT url FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) as preferred_url,
+                   (SELECT COALESCE(SUM(ic.quantity), 0) FROM inventory_checkins ic WHERE ic.part_id = p.id AND ic.received = 0) as pending_qty,
+                   (SELECT COALESCE(SUM(ic.quantity * ic.unit_cost), 0) FROM inventory_checkins ic WHERE ic.part_id = p.id AND ic.received = 0) as pending_value
             FROM project_parts pp
             JOIN parts p ON pp.part_id = p.id
             WHERE pp.project_id = ?
@@ -281,11 +304,16 @@ if ($action === 'get_project') {
         $variation_line_cost = [];       // [attr][value] => summed line_total for that option
 
         foreach ($project['parts'] as &$part) {
-            // Use weighted average cost from actual inventory first, fall back to supplier pricing
-            $unit_cost = $part['weighted_avg_cost'] > 0
-                ? (float) $part['weighted_avg_cost']
-                : (float) ($part['preferred_cost'] ?? $part['lowest_cost'] ?? 0);
+            $auto_unit_cost = bom_projected_unit_cost(
+                $part['current_stock'], $part['weighted_avg_cost'],
+                $part['pending_qty'], $part['pending_value'],
+                $part['preferred_cost'], $part['lowest_cost']
+            );
+            $has_override = $part['cost_override'] !== null;
+            $unit_cost = $has_override ? (float) $part['cost_override'] : $auto_unit_cost;
+            $part['auto_unit_cost'] = $auto_unit_cost;
             $part['unit_cost'] = $unit_cost;
+            $part['cost_is_overridden'] = $has_override;
             $part['line_total'] = $unit_cost * $part['quantity_required'];
 
             if (empty($part['variation_attribute'])) {
@@ -343,7 +371,15 @@ if ($action === 'get_project') {
                 $cost += $variation_line_cost[$attr][$val] ?? 0;
                 $label[] = "$attr: $val";
             }
-            $variation_costs[] = ['label' => implode(', ', $label), 'cost' => $cost];
+            $retail_price = (float) $project['retail_price'];
+            $profit = $retail_price - $cost;
+            $margin_percent = $retail_price > 0 ? ($profit / $retail_price * 100) : 0;
+            $variation_costs[] = [
+                'label'          => implode(', ', $label),
+                'cost'           => $cost,
+                'profit'         => $profit,
+                'margin_percent' => $margin_percent,
+            ];
         }
 
         // Average all-in cost per kit across every variation combo — used for BOM cost / profit /
@@ -941,17 +977,18 @@ if ($action === 'add_project_part') {
     $notes               = $_POST['notes'] ?? '';
     $variation_attribute = $_POST['variation_attribute'] ?? '';
     $variation_value     = $_POST['variation_value'] ?? '';
+    $cost_override       = ($_POST['cost_override'] ?? '') !== '' ? (float)$_POST['cost_override'] : null;
 
     $sortStmt = $db->prepare("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM project_parts WHERE project_id = ?");
     $sortStmt->execute([$project_id]);
     $sort_order = (int)$sortStmt->fetchColumn();
 
     $stmt = $db->prepare("
-        INSERT INTO project_parts (project_id, part_id, quantity_required, notes, variation_attribute, variation_value, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE quantity_required = ?, notes = ?
+        INSERT INTO project_parts (project_id, part_id, quantity_required, notes, cost_override, variation_attribute, variation_value, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE quantity_required = ?, notes = ?, cost_override = ?
     ");
-    $stmt->execute([$project_id, $part_id, $quantity, $notes, $variation_attribute, $variation_value, $sort_order, $quantity, $notes]);
+    $stmt->execute([$project_id, $part_id, $quantity, $notes, $cost_override, $variation_attribute, $variation_value, $sort_order, $quantity, $notes, $cost_override]);
     jsonResponse(['success' => true]);
 }
 
@@ -971,6 +1008,13 @@ if ($action === 'update_project_part') {
     $quantity = (int)($_POST['quantity_required'] ?? 1);
     $stmt = $db->prepare("UPDATE project_parts SET quantity_required = ? WHERE id = ?");
     $stmt->execute([$quantity, $id]);
+
+    // Manual cost override — sent as empty string to clear it back to automatic
+    if (isset($_POST['cost_override'])) {
+        $cost_override = $_POST['cost_override'] !== '' ? (float)$_POST['cost_override'] : null;
+        $stmt = $db->prepare("UPDATE project_parts SET cost_override = ? WHERE id = ?");
+        $stmt->execute([$cost_override, $id]);
+    }
 
     // Also update variation fields if provided
     if (isset($_POST['variation_attribute'])) {

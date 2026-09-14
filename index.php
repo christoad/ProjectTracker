@@ -2585,6 +2585,32 @@
                             </div>
                         </div>
 
+                        ${(project.variation_costs && project.variation_costs.length) ? `
+                        <div style="margin-bottom: 1.5rem;">
+                            <table class="data-table" style="margin:0;">
+                                <thead>
+                                    <tr>
+                                        <th>Variation</th>
+                                        <th>Kit Cost</th>
+                                        <th>Profit per Kit</th>
+                                        <th>Margin</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${project.variation_costs.map(vc => `
+                                        <tr>
+                                            <td>${escHtml(vc.label)}</td>
+                                            <td>$${parseFloat(vc.cost).toFixed(2)}</td>
+                                            <td style="color: ${vc.profit >= 0 ? 'var(--success)' : 'var(--danger)'};">$${parseFloat(vc.profit).toFixed(2)}</td>
+                                            <td style="color: ${vc.margin_percent >= 0 ? 'var(--success)' : 'var(--danger)'};">${parseFloat(vc.margin_percent).toFixed(1)}%</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                            <p style="color: var(--text-dim); font-size: 0.8em; margin-top: 4px;">Retail price is the same across variations, but BOM cost — and therefore margin — can differ by which variation part is used. "Profit per Kit" and "Margin" above are averaged across all variations for a single at-a-glance number; use this table for the real per-variation figures.</p>
+                        </div>
+                        ` : ''}
+
                         <div class="stats-grid" style="margin-bottom: 1.5rem;">
                             <div class="stat-card" style="border-left-color: var(--accent-secondary);">
                                 <div class="stat-value" style="color: var(--accent-secondary);">${project.buildable_kits || 0}</div>
@@ -2716,7 +2742,9 @@
                     <td>${p.category || '-'}</td>
                     <td>${variationLabel}</td>
                     <td>${p.quantity_required}</td>
-                    <td>$${parseFloat(p.unit_cost || 0).toFixed(2)}</td>
+                    <td>$${parseFloat(p.unit_cost || 0).toFixed(2)}${p.cost_is_overridden
+                        ? ` <span title="Manually overridden — automatic cost is $${parseFloat(p.auto_unit_cost || 0).toFixed(2)}" style="font-size:0.72em;color:var(--warning);font-weight:600;">(override)</span>`
+                        : ((p.pending_qty || 0) > 0 ? ` <span title="Blended with ${p.pending_qty} unit(s) on order not yet received, so this reflects their real ordered cost" style="font-size:0.72em;color:var(--info);font-weight:600;">(incl. pending)</span>` : '')}</td>
                     <td>$${parseFloat(p.line_total || 0).toFixed(2)}</td>
                     <td class="${p.current_stock >= p.quantity_required ? 'stock-ok' : 'stock-low'}">${p.current_stock}</td>
                     <td>
@@ -2727,7 +2755,9 @@
                             data-qty="${p.quantity_required}"
                             data-attr="${(p.variation_attribute||'').replace(/"/g,'&quot;')}"
                             data-val="${(p.variation_value||'').replace(/"/g,'&quot;')}"
-                            data-is-variable="${isVariable ? '1' : '0'}">Edit</button>
+                            data-is-variable="${isVariable ? '1' : '0'}"
+                            data-cost-override="${p.cost_is_overridden ? parseFloat(p.unit_cost).toFixed(4) : ''}"
+                            data-auto-cost="${parseFloat(p.auto_unit_cost || 0).toFixed(4)}">Edit</button>
                         <button class="btn btn-small btn-danger" onclick="removeProjectPart(${p.id}, ${project.id})">Remove</button>
                     </td>
                 </tr>`;
@@ -2951,6 +2981,10 @@
                             <input type="number" id="partQty" class="form-input" min="1" value="1" required>
                         </div>
                         <div class="form-group">
+                            <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(optional — leave blank to use the part's average cost automatically)</span></label>
+                            <input type="number" id="partCostOverride" class="form-input" min="0" step="0.0001" placeholder="Auto">
+                        </div>
+                        <div class="form-group">
                             <label class="form-label">Notes (optional)</label>
                             <textarea id="partNotes" class="form-textarea"></textarea>
                         </div>
@@ -2969,6 +3003,7 @@
                 formData.append('project_id', projectId);
                 formData.append('part_id', document.getElementById('partSelect').value);
                 formData.append('quantity_required', document.getElementById('partQty').value);
+                formData.append('cost_override', document.getElementById('partCostOverride').value);
                 formData.append('notes', document.getElementById('partNotes').value);
                 // variation_attribute and variation_value default to '' (fixed part)
 
@@ -3021,6 +3056,10 @@
                             <label class="form-label">Quantity Required per Kit</label>
                             <input type="number" id="varPartQty" class="form-input" min="1" value="1" required>
                         </div>
+                        <div class="form-group">
+                            <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(optional — leave blank to use the part's average cost automatically)</span></label>
+                            <input type="number" id="varPartCostOverride" class="form-input" min="0" step="0.0001" placeholder="Auto">
+                        </div>
                         <div class="flex flex-gap">
                             <button type="submit" class="btn btn-primary">Add Variable Part</button>
                             <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
@@ -3036,6 +3075,7 @@
                 formData.append('project_id', projectId);
                 formData.append('part_id', document.getElementById('varPartSelect').value);
                 formData.append('quantity_required', document.getElementById('varPartQty').value);
+                formData.append('cost_override', document.getElementById('varPartCostOverride').value);
                 formData.append('variation_attribute', document.getElementById('varAttrName').value.trim());
                 formData.append('variation_value', document.getElementById('varAttrValue').value.trim());
 
@@ -3057,6 +3097,8 @@
             const isVariable  = btn.dataset.isVariable === '1';
             const currentAttr = btn.dataset.attr || '';
             const currentVal  = btn.dataset.val  || '';
+            const currentOverride = btn.dataset.costOverride || '';
+            const autoCost = parseFloat(btn.dataset.autoCost || '0');
 
             const variationFields = isVariable ? `
                 <div class="form-group">
@@ -3083,6 +3125,10 @@
                         <label class="form-label">Quantity Required per Kit</label>
                         <input type="number" id="editPartQty" class="form-input" min="1" value="${currentQty}" required>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(leave blank to use the automatic average cost — currently $${autoCost.toFixed(2)})</span></label>
+                        <input type="number" id="editPartCostOverride" class="form-input" min="0" step="0.0001" placeholder="Auto ($${autoCost.toFixed(2)})" value="${currentOverride}">
+                    </div>
                     <div class="flex flex-gap">
                         <button type="submit" class="btn btn-primary">Update</button>
                         <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
@@ -3096,6 +3142,7 @@
                 formData.append('action', 'update_project_part');
                 formData.append('id', partId);
                 formData.append('quantity_required', document.getElementById('editPartQty').value);
+                formData.append('cost_override', document.getElementById('editPartCostOverride').value);
                 if (isVariable) {
                     formData.append('variation_attribute', document.getElementById('editPartAttr').value.trim());
                     formData.append('variation_value', document.getElementById('editPartVal').value.trim());
@@ -3528,7 +3575,7 @@
                                             <td>$${parseFloat(c.total_cost).toFixed(2)}</td>
                                             <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${c.notes || '-'}</td>
                                             <td>
-                                                ${c.received == 0 ? `<button class="btn btn-small btn-primary" onclick="markReceived(${c.id}, ${part.id})">Mark Received</button>` : ''}
+                                                ${c.received == 0 ? `<button class="btn btn-small btn-primary" onclick="markReceived(${c.id}, ${part.id}, ${c.quantity}, '${(part.part_name || '').replace(/'/g, "\\'")}', '${(c.supplier_name || '').replace(/'/g, "\\'")}')">Mark Received</button>` : ''}
                                                 <button class="btn btn-small" onclick="cloneCheckin(${c.id}, ${part.id})">Clone</button>
                                                 <button class="btn btn-small" onclick="editCheckin(${c.id}, ${part.id})">Edit</button>
                                                 <button class="btn btn-small btn-danger" onclick="deleteCheckin(${c.id}, ${part.id}, ${c.received})">Delete</button>
@@ -4247,11 +4294,34 @@
             }
         }
 
-        async function markReceived(checkinId, partId) {
-            if (!confirm('Mark this order as received? Inventory will be updated immediately and WooCommerce stock will be synced.')) return;
+        function markReceived(checkinId, partId, quantity, partName, supplierName) {
+            createModal(
+                'Mark Order as Received',
+                `
+                    <div class="form-group">
+                        <p>Mark this order as received?</p>
+                        <p style="color:var(--text-secondary);font-size:0.9rem;">${quantity} &times; ${partName}${supplierName ? ' from ' + supplierName : ''}</p>
+                        <p style="color:var(--text-secondary);font-size:0.9rem;">Inventory will be updated immediately.</p>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;cursor:pointer;">
+                            <input type="checkbox" id="markReceivedSyncWc" checked>
+                            Also push updated stock to WooCommerce
+                        </label>
+                    </div>
+                    <div class="flex flex-gap">
+                        <button type="button" class="btn btn-primary" id="markReceivedConfirmBtn" onclick="confirmMarkReceived(${checkinId}, ${partId})">Mark Received</button>
+                        <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
+                    </div>
+                `
+            );
+        }
+
+        async function confirmMarkReceived(checkinId, partId) {
+            const syncWc = document.getElementById('markReceivedSyncWc')?.checked;
 
             // Disable the button and show a spinner while the DB update runs
-            const btn = event?.target;
+            const btn = document.getElementById('markReceivedConfirmBtn');
             const origText = btn?.innerHTML;
             if (btn) {
                 btn.disabled = true;
@@ -4273,14 +4343,14 @@
                     return;
                 }
 
-                // DB updated — close modal and refresh UI immediately
-                document.querySelector('.modal.active')?.remove();
+                // DB updated — close both the confirm modal and the part-detail modal behind it, then refresh
+                document.querySelectorAll('.modal.active').forEach(m => m.remove());
                 viewPart(partId);
                 loadParts();
                 loadDashboard();
 
-                // Fire WC sync in the background for each affected project (no await)
-                if (result.project_ids?.length) {
+                // Fire WC sync in the background for each affected project (no await), only if chosen
+                if (syncWc && result.project_ids?.length) {
                     showWcSyncToast(result.project_ids.length);
                     for (const pid of result.project_ids) {
                         const fd = new FormData();

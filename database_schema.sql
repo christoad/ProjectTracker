@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS project_parts (
     part_id INT NOT NULL,
     quantity_required INT NOT NULL DEFAULT 1,
     notes TEXT,
+    cost_override DECIMAL(10,4) NULL DEFAULT NULL,
     variation_attribute VARCHAR(100) NOT NULL DEFAULT '',
     variation_value VARCHAR(255) NOT NULL DEFAULT '',
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
