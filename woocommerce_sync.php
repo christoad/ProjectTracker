@@ -313,6 +313,94 @@ function wc_push_variation_stock($wc_product_id, $wc_variation_id, $qty): array 
     return $result;
 }
 
+/**
+ * Push stock for every variation of ONE product in a single WooCommerce REST API
+ * call (POST .../variations/batch) instead of one PUT per variation.
+ *
+ * A large variable product pushed one-at-a-time — each with its own 15s timeout —
+ * can take minutes and tie up a PHP process long enough to exhaust the host's
+ * process pool, which is what made the whole app look like it "crashed" after
+ * marking a pending order received for a part used in a large variable product
+ * (2026-09-15). Concurrent curl_multi requests were tried first but didn't help —
+ * this WooCommerce/DreamHost install appears to serialize writes to the same
+ * product regardless of how many requests arrive at once (a 5-wide curl_multi
+ * version of this still took ~3.5 minutes for 22 variations, about the same as
+ * fully serial) — so the fix is fewer round trips, not more parallel ones.
+ *
+ * $updates: [ key => ['variation_id' => int, 'qty' => int], ... ]
+ * Returns:  [ key => wc_do_put()-style result array ]
+ */
+function wc_push_variations_batch(int $wc_product_id, array $updates): array {
+    $results = [];
+    if (empty($updates)) return $results;
+
+    $cfg = wc_get_config();
+    if (!$cfg) {
+        foreach ($updates as $key => $u) $results[$key] = ['error' => 'WooCommerce credentials not configured in .env'];
+        return $results;
+    }
+
+    // WooCommerce caps batch endpoints at 100 items per request.
+    foreach (array_chunk($updates, 100, true) as $chunk) {
+        $keys_by_variation_id = [];
+        $update_payload = [];
+        foreach ($chunk as $key => $u) {
+            $qty = (int) $u['qty'];
+            $update_payload[] = [
+                'id'             => (int) $u['variation_id'],
+                'manage_stock'   => true,
+                'stock_quantity' => max(0, $qty),
+                'stock_status'   => $qty > 0 ? 'instock' : 'outofstock',
+            ];
+            $keys_by_variation_id[(int) $u['variation_id']] = $key;
+        }
+
+        $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . $wc_product_id . '/variations/batch';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST  => 'POST',
+            CURLOPT_POSTFIELDS     => json_encode(['update' => $update_payload]),
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+            // One request now covers up to 100 variations processed server-side —
+            // needs more headroom than a single-item push's 15s.
+            CURLOPT_TIMEOUT        => 90,
+        ]);
+        $response  = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curl_err  = curl_error($ch);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+
+        if ($http_code === 0) {
+            $err = ['error' => 'No response from WooCommerce' . ($curl_err ? ": $curl_err" : ' (timed out)'), 'http_code' => 0];
+            foreach ($chunk as $key => $u) $results[$key] = $err;
+            continue;
+        }
+
+        if (!isset($data['update']) || !is_array($data['update'])) {
+            $err = ['error' => $data['message'] ?? "HTTP $http_code", 'http_code' => $http_code, 'raw_body' => $response];
+            foreach ($chunk as $key => $u) $results[$key] = $err;
+            continue;
+        }
+
+        foreach ($data['update'] as $item) {
+            $key = $keys_by_variation_id[$item['id'] ?? null] ?? null;
+            if ($key === null) continue;
+            $results[$key] = isset($item['error'])
+                ? ['error' => $item['error']['message'] ?? 'Unknown error', 'wc_code' => $item['error']['code'] ?? null]
+                : ['success' => true, 'product_id' => $item['id'], 'new_stock' => $item['stock_quantity'] ?? null, 'stock_status' => $item['stock_status'] ?? null];
+        }
+        foreach ($chunk as $key => $u) {
+            if (!isset($results[$key])) $results[$key] = ['error' => 'No result for this variation in batch response'];
+        }
+    }
+
+    return $results;
+}
+
 function wc_do_put(string $url, string $payload, array $cfg): array {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -391,12 +479,26 @@ function wc_sync_project($db, int $project_id): array {
             wc_do_put($parent_url, json_encode(['manage_stock' => false]), $cfg);
         }
 
+        // Compute quantities locally first (fast — all DB), then push all variations
+        // to WooCommerce in one REST batch call via wc_push_variations_batch instead
+        // of one PUT per variation — see that function's doc comment for why (a large
+        // variable product pushed one-at-a-time can take minutes and stall the PHP
+        // process, and concurrent requests didn't help because this WooCommerce
+        // install serializes writes to the same product either way).
+        $push_requests = [];
+        foreach ($mappings as $m) {
+            $push_requests[$m['combo_key']] = [
+                'variation_id' => (int) $m['wc_variation_id'],
+                'qty'          => wc_calculate_variation_qty($db, $project_id, $m['combo_key']),
+            ];
+        }
+        $push_results = wc_push_variations_batch($wc_product_id, $push_requests);
+
         $variation_results = [];
         foreach ($mappings as $m) {
-            $qty    = wc_calculate_variation_qty($db, $project_id, $m['combo_key']);
-            $result = wc_push_variation_stock($wc_product_id, (int) $m['wc_variation_id'], $qty);
+            $result = $push_results[$m['combo_key']] ?? ['error' => 'No result from batch push'];
             $result['combo_key']      = $m['combo_key'];
-            $result['calculated_qty'] = $qty;
+            $result['calculated_qty'] = $push_requests[$m['combo_key']]['qty'];
             $variation_results[]      = $result;
         }
 

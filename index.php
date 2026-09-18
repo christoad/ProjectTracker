@@ -3575,7 +3575,7 @@
                                             <td>$${parseFloat(c.total_cost).toFixed(2)}</td>
                                             <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${c.notes || '-'}</td>
                                             <td>
-                                                ${c.received == 0 ? `<button class="btn btn-small btn-primary" onclick="markReceived(${c.id}, ${part.id}, ${c.quantity}, '${(part.part_name || '').replace(/'/g, "\\'")}', '${(c.supplier_name || '').replace(/'/g, "\\'")}')">Mark Received</button>` : ''}
+                                                ${c.received == 0 ? `<button class="btn btn-small btn-primary" onclick="markReceived(${c.id}, ${part.id}, ${c.quantity}, '${escHtml(part.part_name || '').replace(/'/g, "\\'")}', '${escHtml(c.supplier_name || '').replace(/'/g, "\\'")}')">Mark Received</button>` : ''}
                                                 <button class="btn btn-small" onclick="cloneCheckin(${c.id}, ${part.id})">Clone</button>
                                                 <button class="btn btn-small" onclick="editCheckin(${c.id}, ${part.id})">Edit</button>
                                                 <button class="btn btn-small btn-danger" onclick="deleteCheckin(${c.id}, ${part.id}, ${c.received})">Delete</button>
