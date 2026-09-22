@@ -130,14 +130,18 @@ if (!$tracking_number || !$order_ref) {
 }
 
 // Resolve WooCommerce order ID from the Shippo order reference.
-// Shippo's WooCommerce integration stores the WC order ID in the order's
-// order_number field (a plain numeric string, e.g. "280") — there is no
-// shop_order_id field on the Shippo Order object.
+// Shippo's order_number field holds WooCommerce's customer-facing DISPLAY
+// order number (e.g. "4200062"), which is NOT the same as the order's
+// internal WooCommerce post ID (e.g. 351) that the REST API and this
+// tracker key everything on — this store has a custom order numbering
+// offset. So the display number has to be resolved to the real order ID
+// via the WC REST API's ?search= param (which matches on the display
+// number) before it can be used anywhere else in this script.
 // The order field may be an expanded object or a plain string ID.
-$wc_order_id = null;
+$wc_display_number = null;
 
 if (is_array($order_ref) && isset($order_ref['order_number'])) {
-    $wc_order_id = (int) $order_ref['order_number'];
+    $wc_display_number = (string) $order_ref['order_number'];
 } elseif (is_string($order_ref) && $order_ref !== '') {
     $shippo_token = $env['SHIPPO_API_TOKEN'] ?? '';
     if (!$shippo_token) {
@@ -155,16 +159,27 @@ if (is_array($order_ref) && isset($order_ref['order_number'])) {
     $shippo_order = json_decode(curl_exec($ch), true);
     curl_close($ch);
 
-    $wc_order_id = isset($shippo_order['order_number'])
-        ? (int) $shippo_order['order_number']
+    $wc_display_number = isset($shippo_order['order_number'])
+        ? (string) $shippo_order['order_number']
         : null;
 }
+
+if (!$wc_display_number) {
+    http_response_code(422);
+    echo json_encode([
+        'error'     => 'Could not resolve WooCommerce order number from Shippo order',
+        'order_ref' => $order_ref,
+    ]);
+    exit;
+}
+
+$wc_order_id = wc_resolve_order_id_from_display_number($wc_display_number);
 
 if (!$wc_order_id) {
     http_response_code(422);
     echo json_encode([
-        'error'     => 'Could not resolve WooCommerce order ID from Shippo order',
-        'order_ref' => $order_ref,
+        'error'              => 'Could not resolve internal WooCommerce order ID from display number',
+        'wc_display_number'  => $wc_display_number,
     ]);
     exit;
 }

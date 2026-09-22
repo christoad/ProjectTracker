@@ -668,6 +668,44 @@ function wc_restore_bom_inventory($db, $project_id, $order_qty, ?string $combo_k
 
 // ── WooCommerce order management ──────────────────────────────────────────────
 
+/**
+ * Resolve a WooCommerce order's internal ID from its customer-facing display
+ * order number (the "number" field from the REST API / order emails), which
+ * differs from the internal ID because of this store's custom order
+ * numbering offset. Used by the Shippo webhook, which only ever sees the
+ * display number.
+ */
+function wc_resolve_order_id_from_display_number(string $display_number): ?int {
+    $cfg = wc_get_config();
+    if (!$cfg) return null;
+
+    $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/orders?search=' . urlencode($display_number);
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+        CURLOPT_TIMEOUT        => 15,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code < 200 || $http_code >= 300) return null;
+
+    $results = json_decode($response, true);
+    if (!is_array($results)) return null;
+
+    foreach ($results as $order) {
+        if (isset($order['number']) && (string) $order['number'] === $display_number && isset($order['id'])) {
+            return (int) $order['id'];
+        }
+    }
+
+    return null;
+}
+
 /** Set the status of a WooCommerce order via REST API. */
 function wc_update_order_status($wc_order_id, string $status): array {
     $cfg = wc_get_config();
