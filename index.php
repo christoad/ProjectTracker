@@ -1841,7 +1841,7 @@
                                 <td style="padding:6px 8px;font-family:var(--font-mono);color:${qtyColor}">${v.tracker_qty}</td>
                                 <td id="${cellId}" style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
                                 <td style="padding:6px 8px;color:${color};font-weight:700">${icon}</td>
-                                <td style="padding:6px 8px;white-space:nowrap;">${!v.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id})" style="font-size:10px;">Sync</button> ` : ''}<button class="btn btn-small" onclick="wcEditStock(${p.project_id}, ${v.variation_id}, '${cellId}', ${wcVal === '?' ? 0 : wcVal})" style="font-size:10px;">Edit</button></td>
+                                <td style="padding:6px 8px;white-space:nowrap;">${!v.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id}, this)" style="font-size:10px;">Sync</button> ` : ''}<button class="btn btn-small" onclick="wcEditStock(${p.project_id}, ${v.variation_id}, '${cellId}', ${wcVal === '?' ? 0 : wcVal})" style="font-size:10px;">Edit</button></td>
                             </tr>`;
                         });
                     } else {
@@ -1857,7 +1857,7 @@
                             <td style="padding:6px 8px;font-family:var(--font-mono);color:${qtyColor}">${p.calculated_available_qty}</td>
                             <td id="${cellId}" style="padding:6px 8px;font-family:var(--font-mono);color:var(--text-secondary)">${wcVal}</td>
                             <td style="padding:6px 8px;color:${color};font-weight:700">${icon}</td>
-                            <td style="padding:6px 8px;white-space:nowrap;">${!p.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id})" style="font-size:10px;">Sync</button> ` : ''}<button class="btn btn-small" onclick="wcEditStock(${p.project_id}, null, '${cellId}', ${wcVal === '?' ? 0 : wcVal})" style="font-size:10px;">Edit</button></td>
+                            <td style="padding:6px 8px;white-space:nowrap;">${!p.match ? `<button class="btn btn-small" onclick="wcSyncProject(${p.project_id}, this)" style="font-size:10px;">Sync</button> ` : ''}<button class="btn btn-small" onclick="wcEditStock(${p.project_id}, null, '${cellId}', ${wcVal === '?' ? 0 : wcVal})" style="font-size:10px;">Edit</button></td>
                         </tr>`];
                     }
                 }).join('');
@@ -2578,10 +2578,10 @@
                                 ${project.woocommerce_product_id ? `<strong>WooCommerce ID:</strong> <span style="font-family:var(--font-mono);">${project.woocommerce_product_id}</span>` : '<strong>WooCommerce:</strong> <span style="color:var(--text-dim);">Not linked</span>'}
                             </div>
                             <div>
-                                <strong>Retail Price:</strong> $${parseFloat(project.retail_price || 0).toFixed(2)}<br>
+                                <strong>Retail Price:</strong> $${parseFloat(project.retail_price || 0).toFixed(2)}${project.variation_costs && project.variation_costs.length ? ' <span style="color:var(--text-dim);">(base — see per-variation prices below)</span>' : ''}<br>
                                 <strong>BOM Cost${project.variation_costs && project.variation_costs.length ? ' (avg., all variations)' : ''}:</strong> $${parseFloat(project.total_bom_cost || 0).toFixed(2)}<br>
-                                <strong>Profit per Kit:</strong> <span style="color: var(--success);">$${(parseFloat(project.retail_price || 0) - parseFloat(project.total_bom_cost || 0)).toFixed(2)}</span><br>
-                                <strong>Margin:</strong> ${parseFloat(project.profit_margin_percent || 0).toFixed(1)}%
+                                <strong>Profit per Kit${project.variation_costs && project.variation_costs.length ? ' (avg.)' : ''}:</strong> <span style="color: ${parseFloat(project.profit_per_kit || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">$${parseFloat(project.profit_per_kit || 0).toFixed(2)}</span><br>
+                                <strong>Margin${project.variation_costs && project.variation_costs.length ? ' (avg.)' : ''}:</strong> ${parseFloat(project.profit_margin_percent || 0).toFixed(1)}%
                             </div>
                         </div>
 
@@ -2591,6 +2591,7 @@
                                 <thead>
                                     <tr>
                                         <th>Variation</th>
+                                        <th>Price</th>
                                         <th>Kit Cost</th>
                                         <th>Profit per Kit</th>
                                         <th>Margin</th>
@@ -2600,6 +2601,7 @@
                                     ${project.variation_costs.map(vc => `
                                         <tr>
                                             <td>${escHtml(vc.label)}</td>
+                                            <td>$${parseFloat(vc.price).toFixed(2)}${!vc.price_is_live ? ' <span style="color:var(--text-dim);font-size:0.85em;" title="No WooCommerce variation mapping found for this combination — using the project\'s base retail price instead of a live variation price.">(base price)</span>' : ''}</td>
                                             <td>$${parseFloat(vc.cost).toFixed(2)}</td>
                                             <td style="color: ${vc.profit >= 0 ? 'var(--success)' : 'var(--danger)'};">$${parseFloat(vc.profit).toFixed(2)}</td>
                                             <td style="color: ${vc.margin_percent >= 0 ? 'var(--success)' : 'var(--danger)'};">${parseFloat(vc.margin_percent).toFixed(1)}%</td>
@@ -2607,7 +2609,7 @@
                                     `).join('')}
                                 </tbody>
                             </table>
-                            <p style="color: var(--text-dim); font-size: 0.8em; margin-top: 4px;">Retail price is the same across variations, but BOM cost — and therefore margin — can differ by which variation part is used. "Profit per Kit" and "Margin" above are averaged across all variations for a single at-a-glance number; use this table for the real per-variation figures.</p>
+                            <p style="color: var(--text-dim); font-size: 0.8em; margin-top: 4px;">Price is pulled live from each variation's mapped WooCommerce listing, since variations can be priced differently. "(base price)" means no WooCommerce variation mapping was found, so the project's shared retail price was used instead. "Profit per Kit" and "Margin" above the table are averaged across all variations for a single at-a-glance number; use this table for the real per-variation figures.</p>
                         </div>
                         ` : ''}
 
@@ -3484,11 +3486,95 @@
             });
         }
 
+        function renderLeadTimeSection(checkins) {
+            checkins = checkins || [];
+            if (checkins.length === 0) return '';
+
+            const completed = checkins
+                .filter(c => c.received == 1 && c.received_at)
+                .map(c => {
+                    const orderDate = new Date(c.purchase_date + 'T00:00:00');
+                    const receivedDate = new Date(c.received_at.split(' ')[0] + 'T00:00:00');
+                    const days = Math.max(0, Math.round((receivedDate - orderDate) / 86400000));
+                    return { date: orderDate, days, supplier: c.supplier_name || '', purchaseDate: c.purchase_date, receivedDate: c.received_at.split(' ')[0], quantity: c.quantity };
+                })
+                .sort((a, b) => a.date - b.date);
+
+            const pending = checkins.filter(c => c.received == 0);
+
+            if (completed.length === 0) {
+                return `
+                    <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
+                    <h4>Delivery Time</h4>
+                    <p style="color: var(--text-dim); text-align: center; padding: 1rem;">No completed orders yet — mark an order received to start tracking delivery time for this part.</p>
+                `;
+            }
+
+            const avg = completed.reduce((sum, c) => sum + c.days, 0) / completed.length;
+
+            const W = 640, H = 160, padL = 34, padR = 16, padT = 14, padB = 26;
+            const plotW = W - padL - padR, plotH = H - padT - padB;
+            const maxDay = Math.max(avg, ...completed.map(c => c.days), 1);
+            const yFor = d => padT + plotH - (d / maxDay) * plotH;
+            const xFor = i => completed.length === 1 ? padL + plotW / 2 : padL + (i / (completed.length - 1)) * plotW;
+
+            const points = completed.map((c, i) => ({ x: xFor(i), y: yFor(c.days), ...c }));
+            const linePath = points.map((p, i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+            const avgY = yFor(avg);
+            const yTicks = [0, maxDay / 2, maxDay].map(v => ({ v, y: yFor(v) }));
+
+            const dotsSvg = points.map(p => `
+                <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="var(--accent-primary)" stroke="var(--bg-card)" stroke-width="1.5">
+                    <title>${escHtml(p.purchaseDate)} → ${escHtml(p.receivedDate)} — ${p.days} day${p.days === 1 ? '' : 's'}${p.supplier ? ' (' + escHtml(p.supplier) + ')' : ''}, qty ${p.quantity}</title>
+                </circle>
+            `).join('');
+
+            const gridSvg = yTicks.map(t => `
+                <line x1="${padL}" y1="${t.y.toFixed(1)}" x2="${W - padR}" y2="${t.y.toFixed(1)}" stroke="var(--border-card)" stroke-width="1"/>
+                <text x="${padL - 6}" y="${(t.y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-dim)">${Math.round(t.v)}</text>
+            `).join('');
+
+            const firstLabel = completed[0].purchaseDate;
+            const lastLabel = completed[completed.length - 1].purchaseDate;
+
+            let etaHtml = '';
+            if (pending.length > 0) {
+                etaHtml = `
+                    <div style="margin-top:8px; font-size:0.85em; color: var(--text-secondary);">
+                        ${pending.map(p => {
+                            const orderDate = new Date(p.purchase_date + 'T00:00:00');
+                            const eta = new Date(orderDate.getTime() + Math.round(avg) * 86400000);
+                            const etaStr = eta.toISOString().split('T')[0];
+                            return `Pending order from ${escHtml(p.purchase_date)}${p.supplier_name ? ' (' + escHtml(p.supplier_name) + ')' : ''}: est. arrival <strong>${etaStr}</strong> (based on ${avg.toFixed(1)}d avg)`;
+                        }).join('<br>')}
+                    </div>
+                `;
+            }
+
+            return `
+                <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
+                <h4>Delivery Time</h4>
+                <p style="margin: 4px 0 10px 0; font-size: 0.9em; color: var(--text-secondary);">
+                    Average <strong>${avg.toFixed(1)} day${avg === 1 ? '' : 's'}</strong> from order to receipt, based on ${completed.length} completed order${completed.length === 1 ? '' : 's'}.
+                </p>
+                <svg viewBox="0 0 ${W} ${H}" style="width:100%; max-width:${W}px; height:${H}px; display:block;">
+                    ${gridSvg}
+                    <line x1="${padL}" y1="${avgY.toFixed(1)}" x2="${W - padR}" y2="${avgY.toFixed(1)}" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="4,3"/>
+                    <text x="${W - padR}" y="${(avgY - 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--warning)" font-weight="600">avg ${avg.toFixed(1)}d</text>
+                    <path d="${linePath}" fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    ${dotsSvg}
+                    <text x="${padL}" y="${H - 6}" font-size="10" fill="var(--text-dim)">${escHtml(firstLabel)}</text>
+                    <text x="${W - padR}" y="${H - 6}" text-anchor="end" font-size="10" fill="var(--text-dim)">${escHtml(lastLabel)}</text>
+                </svg>
+                ${etaHtml}
+            `;
+        }
+
         async function viewPart(id) {
             try {
                 const response = await fetch(`api.php?action=get_part&id=${id}`);
                 const part = await response.json();
-                
+
                 const sourcesHtml = part.sources && part.sources.length > 0
                     ? `
                         <table class="data-table">
@@ -3589,6 +3675,7 @@
                                 </tbody>
                             </table>
                         ` : '<p style="color: var(--text-dim); text-align: center; padding: 2rem;">No orders yet. Click "+ Record Order" to log your first parts order.</p>'}
+                        ${renderLeadTimeSection(part.checkins)}
                         <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                             <h4>Stock Adjustments</h4>

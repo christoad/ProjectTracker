@@ -362,6 +362,28 @@ if ($action === 'get_project') {
             $combos = $new_combos;
         }
 
+        // Each WooCommerce variation can carry its own price (e.g. a premium color option) —
+        // pull the real per-variation price via project_variation_mappings instead of assuming
+        // every variation sells at the project's single shared retail_price.
+        require_once 'woocommerce_sync.php';
+        $variation_prices = []; // combo_key => live WC price
+        if (!empty($combos) && !empty($combos[0]) && !empty($project['woocommerce_product_id'])) {
+            $mstmt = $db->prepare("SELECT combo_key, wc_variation_id FROM project_variation_mappings WHERE project_id = ? AND wc_variation_id IS NOT NULL");
+            $mstmt->execute([$id]);
+            $mappings = $mstmt->fetchAll();
+            if ($mappings) {
+                $requests = [];
+                foreach ($mappings as $m) {
+                    $requests[$m['combo_key']] = ['product_id' => $project['woocommerce_product_id'], 'variation_id' => $m['wc_variation_id']];
+                }
+                foreach (wc_fetch_stock_batch($requests) as $combo_key => $data) {
+                    if ($data['price'] !== null) {
+                        $variation_prices[$combo_key] = $data['price'];
+                    }
+                }
+            }
+        }
+
         $variation_costs = [];
         foreach ($combos as $combo) {
             if (empty($combo)) continue; // project has no variation parts
@@ -371,11 +393,15 @@ if ($action === 'get_project') {
                 $cost += $variation_line_cost[$attr][$val] ?? 0;
                 $label[] = "$attr: $val";
             }
-            $retail_price = (float) $project['retail_price'];
+            $combo_key    = wc_build_combo_key($combo);
+            $has_live_price = isset($variation_prices[$combo_key]);
+            $retail_price = $has_live_price ? $variation_prices[$combo_key] : (float) $project['retail_price'];
             $profit = $retail_price - $cost;
             $margin_percent = $retail_price > 0 ? ($profit / $retail_price * 100) : 0;
             $variation_costs[] = [
                 'label'          => implode(', ', $label),
+                'price'          => $retail_price,
+                'price_is_live'  => $has_live_price,
                 'cost'           => $cost,
                 'profit'         => $profit,
                 'margin_percent' => $margin_percent,
@@ -395,14 +421,25 @@ if ($action === 'get_project') {
         // Value of materials tied up in the kits we can actually build right now
         $project['total_inventory_value'] = $avg_kit_cost * $min_buildable;
 
-        // Calculate revenue and profit if retail price is set
-        if ($project['retail_price'] > 0) {
+        // Calculate revenue and profit. When variations exist, average each variation's own
+        // real price/profit/margin — not a single shared price diffed against the averaged cost,
+        // since that hides the fact that variations can be priced differently.
+        if (!empty($variation_costs)) {
+            $n = count($variation_costs);
+            $avg_price  = array_sum(array_column($variation_costs, 'price')) / $n;
+            $project['projected_revenue']     = $avg_price * $min_buildable;
+            $project['projected_profit']      = $project['projected_revenue'] - $project['total_inventory_value'];
+            $project['profit_per_kit']        = array_sum(array_column($variation_costs, 'profit')) / $n;
+            $project['profit_margin_percent'] = array_sum(array_column($variation_costs, 'margin_percent')) / $n;
+        } elseif ($project['retail_price'] > 0) {
             $project['projected_revenue'] = $project['retail_price'] * $min_buildable;
             $project['projected_profit'] = $project['projected_revenue'] - $project['total_inventory_value'];
+            $project['profit_per_kit'] = $project['retail_price'] - $avg_kit_cost;
             $project['profit_margin_percent'] = $avg_kit_cost > 0 ? (($project['retail_price'] - $avg_kit_cost) / $project['retail_price'] * 100) : 0;
         } else {
             $project['projected_revenue'] = 0;
             $project['projected_profit'] = 0;
+            $project['profit_per_kit'] = 0;
             $project['profit_margin_percent'] = 0;
         }
 
