@@ -1503,6 +1503,15 @@
             if (sectionId === 'beta-feedback') loadBetaFeedback();
         }
 
+        // Cost fields on parts orders accept pasted values like "$1,234.50": strip
+        // the $ and commas as they're typed/pasted. Capture phase so the cleaned
+        // value is in place before each form's own input listeners recalculate.
+        document.addEventListener('input', e => {
+            if (!e.target.classList || !e.target.classList.contains('money-input')) return;
+            const cleaned = e.target.value.replace(/[^0-9.]/g, '');
+            if (cleaned !== e.target.value) e.target.value = cleaned;
+        }, true);
+
         // Dashboard
         // Re-pulls the dashboard (incl. the Inventory Order Planner) after a BOM or
         // project change, but only when the dashboard is the tab underneath. Keeps
@@ -3943,11 +3952,11 @@
                             <div class="grid-2">
                                 <div class="form-group">
                                     <label class="form-label">Unit Cost ($)</label>
-                                    <input type="number" id="editCheckinUnitCost" class="form-input" step="0.0001" min="0" value="${parseFloat(checkin.unit_cost).toFixed(4)}">
+                                    <input type="text" inputmode="decimal" id="editCheckinUnitCost" class="form-input money-input" value="${parseFloat(checkin.unit_cost).toFixed(4)}">
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">Gross Total ($)</label>
-                                    <input type="number" id="editCheckinGrossTotal" class="form-input" step="0.01" min="0" value="${parseFloat(checkin.total_cost).toFixed(2)}">
+                                    <input type="text" inputmode="decimal" id="editCheckinGrossTotal" class="form-input money-input" value="${parseFloat(checkin.total_cost).toFixed(2)}">
                                 </div>
                             </div>
                             
@@ -4037,12 +4046,12 @@
                         <div class="grid-2">
                             <div class="form-group">
                                 <label class="form-label">Unit Cost ($)</label>
-                                <input type="number" id="checkinUnitCost" class="form-input" step="0.0001" min="0" placeholder="e.g., 0.1250">
+                                <input type="text" inputmode="decimal" id="checkinUnitCost" class="form-input money-input" placeholder="e.g., 0.1250">
                                 <small style="color: var(--text-secondary);">Per part cost</small>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Gross Total ($)</label>
-                                <input type="number" id="checkinGrossTotal" class="form-input" step="0.01" min="0" placeholder="e.g., 25.50">
+                                <input type="text" inputmode="decimal" id="checkinGrossTotal" class="form-input money-input" placeholder="e.g., 25.50">
                                 <small style="color: var(--text-secondary);">Total order cost (incl. shipping/tax)</small>
                             </div>
                         </div>
@@ -4296,11 +4305,11 @@
                             <div class="grid-2">
                                 <div class="form-group">
                                     <label class="form-label">Unit Cost ($)</label>
-                                    <input type="number" id="cloneCheckinUnitCost" class="form-input" step="0.0001" min="0" value="${parseFloat(checkin.unit_cost).toFixed(4)}">
+                                    <input type="text" inputmode="decimal" id="cloneCheckinUnitCost" class="form-input money-input" value="${parseFloat(checkin.unit_cost).toFixed(4)}">
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">Gross Total ($)</label>
-                                    <input type="number" id="cloneCheckinGrossTotal" class="form-input" step="0.01" min="0" value="${parseFloat(checkin.total_cost).toFixed(2)}">
+                                    <input type="text" inputmode="decimal" id="cloneCheckinGrossTotal" class="form-input money-input" value="${parseFloat(checkin.total_cost).toFixed(2)}">
                                 </div>
                             </div>
                             <div id="cloneCalcDisplay" style="background: #ecfdf5; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
