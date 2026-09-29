@@ -1504,7 +1504,16 @@
         }
 
         // Dashboard
-        async function loadDashboard() {
+        // Re-pulls the dashboard (incl. the Inventory Order Planner) after a BOM or
+        // project change, but only when the dashboard is the tab underneath. Keeps
+        // whichever planner projects were expanded so the view doesn't jump around.
+        function refreshDashboardIfVisible() {
+            if (document.getElementById('dashboard')?.classList.contains('active')) {
+                loadDashboard({ keepExpanded: true });
+            }
+        }
+
+        async function loadDashboard(opts = {}) {
             try {
                 const response = await fetch('api.php?action=get_dashboard');
                 const data = await response.json();
@@ -1539,8 +1548,10 @@
 
                 // Bottleneck insights — store data and render with current target
                 bottleneckInsightsData = data.bottleneck_insights || [];
-                bottleneckExpandedProjects = new Set();
-                bottleneckInitialized = false;
+                if (!opts.keepExpanded) {
+                    bottleneckExpandedProjects = new Set();
+                    bottleneckInitialized = false;
+                }
                 renderBottleneckInsights();
             } catch (error) {
                 console.error('Error loading dashboard:', error);
@@ -2356,6 +2367,7 @@
                     await fetch('api.php', { method: 'POST', body: formData });
                     modal.remove();
                     loadProjects();
+                    refreshDashboardIfVisible();
                 } catch (error) {
                     alert('Error saving project');
                 }
@@ -3014,6 +3026,7 @@
                     modal.remove();
                     document.querySelector('.modal.active')?.remove();
                     viewProject(projectId);
+                    refreshDashboardIfVisible();
                 } catch (error) {
                     alert('Error adding part to project');
                 }
@@ -3086,6 +3099,7 @@
                     modal.remove();
                     document.querySelector('.modal.active')?.remove();
                     viewProject(projectId);
+                    refreshDashboardIfVisible();
                 } catch (error) {
                     alert('Error adding variable part');
                 }
@@ -3153,6 +3167,7 @@
                     await fetch('api.php', { method: 'POST', body: formData });
                     modal.remove();
                     viewProject(projectId);
+                    refreshDashboardIfVisible();
                 } catch (error) {
                     alert('Error updating part');
                 }
@@ -3170,6 +3185,7 @@
                 await fetch('api.php', { method: 'POST', body: formData });
                 document.querySelector('.modal.active')?.remove();
                 viewProject(projectId);
+                refreshDashboardIfVisible();
             } catch (error) {
                 alert('Error removing part');
             }
