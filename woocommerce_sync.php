@@ -1125,6 +1125,30 @@ function wc_map_order_status(string $wcStatus): string {
 }
 
 /**
+ * Pull the customer's callsign off a WC order. ki6cr-custom.php on the store saves
+ * it as `_billing_callsign` meta (classic checkout) or the block checkout field
+ * meta, and also copies it into billing/shipping company for Shippo labels.
+ * Manually-created orders often only have it in the company field. Returns ''
+ * if none found (e.g. Apple Pay / express checkout, which skips the field).
+ */
+function wc_extract_callsign(array $wcOrder): string {
+    $metaKeys = ['_billing_callsign', 'callsign', 'ki6cr-labs/callsign',
+                 '_wc_other/ki6cr-labs/callsign', '_wc_billing/ki6cr-labs/callsign'];
+    $meta = [];
+    foreach (($wcOrder['meta_data'] ?? []) as $md) {
+        if (isset($md['key']) && is_scalar($md['value'] ?? null)) $meta[$md['key']] = trim((string) $md['value']);
+    }
+    $candidates = [];
+    foreach ($metaKeys as $k) $candidates[] = $meta[$k] ?? '';
+    $candidates[] = trim($wcOrder['shipping']['company'] ?? '');
+    $candidates[] = trim($wcOrder['billing']['company'] ?? '');
+    foreach ($candidates as $c) {
+        if ($c !== '') return strtoupper($c);
+    }
+    return '';
+}
+
+/**
  * Upsert one parent `orders` row + its `order_items` rows from a raw WooCommerce
  * order payload (webhook body or a single element of the REST API /orders list —
  * same shape either way).
@@ -1208,6 +1232,10 @@ function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
             'order_total'     => $wcOrder['total'] ?? null,
             'source'          => 'woocommerce',
         ];
+        // Only set when WC has one, so a callsign typed in manually on the tracker
+        // isn't wiped by a later webhook/reconcile for an express-checkout order.
+        $callsign = wc_extract_callsign($wcOrder);
+        if ($callsign !== '') $orderFields['customer_callsign'] = $callsign;
 
         // Don't regress a status already advanced by Shippo (shipped) back down to
         // paid/pending — but do allow it to move forward to completed, or to

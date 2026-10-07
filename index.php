@@ -983,7 +983,7 @@
                     <div class="card-header" style="flex-wrap:wrap;gap:8px;">
                         <div>
                             <h2 class="card-title">Inventory Order Planner</h2>
-                            <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400;">Every BOM part ranked by how many kits you can build — see what to order</span>
+                            <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400;">Every BOM part ranked by how many kits you can build. See what to order.</span>
                         </div>
                         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;">
                             <span style="font-size:0.82rem;color:var(--text-secondary);">Order to:</span>
@@ -1084,7 +1084,7 @@
                         <table class="data-table" id="ordersTable">
                             <thead>
                                 <tr>
-                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'order_number')" title="Click to sort">Order # <span id="sort-orders-order_number"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'display_number')" title="Click to sort">Order # <span id="sort-orders-display_number"></span></th>
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'order_date')" title="Click to sort">Date <span id="sort-orders-order_date"></span></th>
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'customer_name')" title="Click to sort">Customer <span id="sort-orders-customer_name"></span></th>
                                     <th style="cursor: pointer; user-select: none;" onclick="sortTable('orders', 'customer_callsign')" title="Click to sort">Callsign <span id="sort-orders-customer_callsign"></span></th>
@@ -1777,16 +1777,16 @@
             const btn = document.getElementById('wcSyncAllBtn');
             const spinner = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:4px;"></span>';
             if (btn) { btn.disabled = true; btn.innerHTML = spinner + 'Syncing…'; }
-            wcShowResult(spinner.replace('#fff', 'var(--accent-secondary)').replace('rgba(255,255,255,0.4)', 'rgba(0,0,0,0.15)') + '<em>Syncing all projects to WooCommerce — this pushes live stock updates one project at a time, so it can take a while…</em>');
+            wcShowResult(spinner.replace('#fff', 'var(--accent-secondary)').replace('rgba(255,255,255,0.4)', 'rgba(0,0,0,0.15)') + '<em>Syncing all projects to WooCommerce. This pushes live stock updates one project at a time, so it can take a while…</em>');
             try {
                 const r = await fetch(`${WC_WEBHOOK}?action=wc_sync_all`);
                 const data = await r.json();
                 if (data.error) { wcShowResult(`<span style="color:var(--danger)">Error: ${data.error}</span>`); return; }
                 const rows = (data.results || []).map(p => {
-                    if (p.skipped) return `<tr><td style="padding:3px 8px;color:var(--text-secondary)">${p.project_id}</td><td colspan="2" style="padding:3px 8px;color:var(--text-secondary)">skipped — ${p.reason}</td></tr>`;
+                    if (p.skipped) return `<tr><td style="padding:3px 8px;color:var(--text-secondary)">${p.project_id}</td><td colspan="2" style="padding:3px 8px;color:var(--text-secondary)">skipped: ${p.reason}</td></tr>`;
                     if (p.variable) {
                         const varLines = (p.variations || []).map(v => {
-                            if (v.skipped) return `${v.combo}: skipped — ${v.reason}`;
+                            if (v.skipped) return `${v.combo}: skipped (${v.reason})`;
                             if (!v.success) return `<span style="color:var(--danger)">${v.combo}: ✗ ${v.error}</span>`;
                             const wc = v.new_stock !== null && v.new_stock !== undefined ? ` (WC: ${v.new_stock})` : '';
                             return `<span style="color:var(--success)">${v.combo}: ✓ ${v.calculated_qty}${wc}</span>`;
@@ -1799,7 +1799,7 @@
                     }
                     return `<tr><td style="padding:3px 8px;font-weight:600">${p.project_name}</td><td style="padding:3px 8px;color:var(--danger)">✗ error</td><td style="padding:3px 8px">${p.error || 'Unknown error'}</td></tr>`;
                 }).join('');
-                wcShowResult(`<strong>Sync All — ${data.synced} project(s) pushed</strong>
+                wcShowResult(`<strong>Sync All: ${data.synced} project(s) pushed</strong>
                     <table style="margin-top:8px;width:100%;border-collapse:collapse;font-size:0.85rem;">
                         <thead><tr style="color:var(--text-secondary);text-align:left;border-bottom:1px solid var(--border-card)">
                             <th style="padding:3px 8px">Project</th><th style="padding:3px 8px">Result</th><th style="padding:3px 8px">Detail</th>
@@ -1818,7 +1818,7 @@
             const btn = document.getElementById('wcCheckStatusBtn');
             const spinner = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:4px;"></span>';
             if (btn) { btn.disabled = true; btn.innerHTML = spinner + 'Checking…'; }
-            wcShowResult(spinner.replace('#fff', 'var(--info)').replace('rgba(255,255,255,0.4)', 'rgba(0,0,0,0.15)') + '<em>Fetching WooCommerce stock status — this checks every variation live, so it can take 20-40 seconds…</em>');
+            wcShowResult(spinner.replace('#fff', 'var(--info)').replace('rgba(255,255,255,0.4)', 'rgba(0,0,0,0.15)') + '<em>Fetching WooCommerce stock status. This checks every variation live, so it can take 20-40 seconds…</em>');
             try {
                 const r = await fetch(`${WC_WEBHOOK}?action=wc_status`);
                 const data = await r.json();
@@ -1896,9 +1896,9 @@
                         </thead>
                         <tbody>${rows}</tbody>
                     </table>
-                    ${anyMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some stock quantities are out of sync — use the Sync buttons above, or Sync All.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All quantities match WooCommerce.</div>'}
-                    ${anyPriceMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some retail prices do not match WooCommerce — use "Pull from WC" under the project name to update the tracker.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All tracker retail prices match WooCommerce.</div>'}
-                    <div style="padding:6px 0 0;font-size:11px;color:var(--text-dim);">Edit lets you type a stock number and push it straight to WooCommerce — it does not change the tracker's calculated quantity. Pull from WC copies WooCommerce's live price into the tracker's retail price (used for margin and unrealized-revenue calculations, and as the default on manual orders).</div>`);
+                    ${anyMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some stock quantities are out of sync. Use the Sync buttons above, or Sync All.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All quantities match WooCommerce.</div>'}
+                    ${anyPriceMismatch ? '<div style="padding:8px 12px;margin-top:4px;background:rgba(196,125,26,0.08);border-radius:4px;font-size:12px;color:var(--warning);">⚠ Some retail prices do not match WooCommerce. Use "Pull from WC" under the project name to update the tracker.</div>' : '<div style="padding:6px 0;font-size:12px;color:var(--success);">✓ All tracker retail prices match WooCommerce.</div>'}
+                    <div style="padding:6px 0 0;font-size:11px;color:var(--text-dim);">Edit lets you type a stock number and push it straight to WooCommerce; it does not change the tracker's calculated quantity. Pull from WC copies WooCommerce's live price into the tracker's retail price (used for margin and unrealized-revenue calculations, and as the default on manual orders).</div>`);
             } catch(e) {
                 wcShowResult(`<span style="color:var(--danger)">Request failed: ${e.message}</span>`);
             } finally {
@@ -2004,7 +2004,7 @@
                     : !data.success;
 
                 if (isError) {
-                    btn.textContent = '✗ Failed — see log';
+                    btn.textContent = '✗ Failed, see log';
                     btn.setAttribute('style', 'background:var(--danger);color:white;border-color:var(--danger);');
                     setTimeout(() => resetBtn(origText, origStyle), 5000);
                 } else if (data.variable) {
@@ -2196,10 +2196,12 @@
             try {
                 const response = await fetch('api.php?action=get_orders');
                 let allOrders = await response.json();
+                allOrders.forEach(o => { o.display_number = o.wc_display_number || o.order_number; });
                 
                 // Apply sorting
                 allOrders = sortData(allOrders, sortState.orders.column, sortState.orders.direction);
                 orders = allOrders;
+                updateSortArrows('orders');
                 
                 const tbody = document.querySelector('#ordersTable tbody');
                 tbody.innerHTML = orders.map(o => `
@@ -2228,7 +2230,7 @@
             const result = document.getElementById('wcReconcileResult');
             btn.disabled = true;
             btn.textContent = 'Refreshing…';
-            result.innerHTML = '<div style="padding:0.5rem 0;color:var(--text-secondary);font-size:0.85rem;">Pulling order history from WooCommerce — this can take a little while for a full store history…</div>';
+            result.innerHTML = '<div style="padding:0.5rem 0;color:var(--text-secondary);font-size:0.85rem;">Pulling order history from WooCommerce. This can take a little while for a full store history…</div>';
             try {
                 const r = await fetch('api.php?action=wc_reconcile_orders');
                 const data = await r.json();
@@ -2236,7 +2238,7 @@
                     result.innerHTML = `<div style="padding:0.5rem 0;color:var(--danger);font-size:0.85rem;">${data.error}</div>`;
                 } else {
                     const errCount = (data.errors || []).length;
-                    result.innerHTML = `<div style="padding:0.5rem 0;color:var(--success);font-size:0.85rem;">✓ Refreshed ${data.orders_processed} order(s) from WooCommerce.${errCount ? ` ${errCount} error(s) — check wc_sync.log.` : ''}</div>`;
+                    result.innerHTML = `<div style="padding:0.5rem 0;color:var(--success);font-size:0.85rem;">✓ Refreshed ${data.orders_processed} order(s) from WooCommerce.${errCount ? ` ${errCount} error(s), check wc_sync.log.` : ''}</div>`;
                     loadOrders();
                 }
             } catch (e) {
@@ -2326,7 +2328,7 @@
                             <input type="number" id="projectShipWeight" class="form-input" value="${project.ship_weight_oz || ''}" step="0.1" min="0" placeholder="e.g. 8.5">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Package Dimensions (inches) — L × W × H</label>
+                            <label class="form-label">Package Dimensions (inches): L × W × H</label>
                             <div class="grid-2" style="grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
                                 <input type="number" id="projectPkgLength" class="form-input" value="${project.pkg_length || ''}" step="0.1" min="0" placeholder="Length">
                                 <input type="number" id="projectPkgWidth"  class="form-input" value="${project.pkg_width  || ''}" step="0.1" min="0" placeholder="Width">
@@ -2337,7 +2339,7 @@
                         <div class="form-group">
                             <label class="form-label">WooCommerce Product ID</label>
                             <input type="number" id="projectWooId" class="form-input" value="${project.woocommerce_product_id || ''}" placeholder="Leave blank if not linked to WooCommerce" min="1" style="font-family:var(--font-mono);">
-                            <small style="color:var(--text-secondary);font-size:0.875rem;">The numeric product ID from your WooCommerce store — needed for inventory sync.</small>
+                            <small style="color:var(--text-secondary);font-size:0.875rem;">The numeric product ID from your WooCommerce store, needed for inventory sync.</small>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Project Image</label>
@@ -2439,11 +2441,11 @@
             (history || []).forEach(h => h.project_id_for_undo = projectId);
 
             const comboOptionsHtml = variationData.has_variations
-                ? variationData.combos.map(c => `<option value="${c.combo_key}">${formatPromoCombo(c.combo_key)} — ${c.buildable} buildable</option>`).join('')
+                ? variationData.combos.map(c => `<option value="${c.combo_key}">${formatPromoCombo(c.combo_key)}: ${c.buildable} buildable</option>`).join('')
                 : '';
 
             const modal = createModal(
-                `Promo / Freebie — ${projectName}`,
+                `Promo / Freebie: ${projectName}`,
                 `
                     <form id="promoForm">
                         <p style="color:var(--text-secondary);font-size:0.85rem;margin-top:0;">
@@ -2599,7 +2601,7 @@
                                 ${project.woocommerce_product_id ? `<strong>WooCommerce ID:</strong> <span style="font-family:var(--font-mono);">${project.woocommerce_product_id}</span>` : '<strong>WooCommerce:</strong> <span style="color:var(--text-dim);">Not linked</span>'}
                             </div>
                             <div>
-                                <strong>Retail Price:</strong> $${parseFloat(project.retail_price || 0).toFixed(2)}${project.variation_costs && project.variation_costs.length ? ' <span style="color:var(--text-dim);">(base — see per-variation prices below)</span>' : ''}<br>
+                                <strong>Retail Price:</strong> $${parseFloat(project.retail_price || 0).toFixed(2)}${project.variation_costs && project.variation_costs.length ? ' <span style="color:var(--text-dim);">(base; see per-variation prices below)</span>' : ''}<br>
                                 <strong>BOM Cost${project.variation_costs && project.variation_costs.length ? ' (avg., all variations)' : ''}:</strong> $${parseFloat(project.total_bom_cost || 0).toFixed(2)}<br>
                                 <strong>Profit per Kit${project.variation_costs && project.variation_costs.length ? ' (avg.)' : ''}:</strong> <span style="color: ${parseFloat(project.profit_per_kit || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">$${parseFloat(project.profit_per_kit || 0).toFixed(2)}</span><br>
                                 <strong>Margin${project.variation_costs && project.variation_costs.length ? ' (avg.)' : ''}:</strong> ${parseFloat(project.profit_margin_percent || 0).toFixed(1)}%
@@ -2622,7 +2624,7 @@
                                     ${project.variation_costs.map(vc => `
                                         <tr>
                                             <td>${escHtml(vc.label)}</td>
-                                            <td>$${parseFloat(vc.price).toFixed(2)}${!vc.price_is_live ? ' <span style="color:var(--text-dim);font-size:0.85em;" title="No WooCommerce variation mapping found for this combination — using the project\'s base retail price instead of a live variation price.">(base price)</span>' : ''}</td>
+                                            <td>$${parseFloat(vc.price).toFixed(2)}${!vc.price_is_live ? ' <span style="color:var(--text-dim);font-size:0.85em;" title="No WooCommerce variation mapping found for this combination, so using the project\'s base retail price instead of a live variation price.">(base price)</span>' : ''}</td>
                                             <td>$${parseFloat(vc.cost).toFixed(2)}</td>
                                             <td style="color: ${vc.profit >= 0 ? 'var(--success)' : 'var(--danger)'};">$${parseFloat(vc.profit).toFixed(2)}</td>
                                             <td style="color: ${vc.margin_percent >= 0 ? 'var(--success)' : 'var(--danger)'};">${parseFloat(vc.margin_percent).toFixed(1)}%</td>
@@ -2766,7 +2768,7 @@
                     <td>${variationLabel}</td>
                     <td>${p.quantity_required}</td>
                     <td>$${parseFloat(p.unit_cost || 0).toFixed(2)}${p.cost_is_overridden
-                        ? ` <span title="Manually overridden — automatic cost is $${parseFloat(p.auto_unit_cost || 0).toFixed(2)}" style="font-size:0.72em;color:var(--warning);font-weight:600;">(override)</span>`
+                        ? ` <span title="Manually overridden. Automatic cost is $${parseFloat(p.auto_unit_cost || 0).toFixed(2)}" style="font-size:0.72em;color:var(--warning);font-weight:600;">(override)</span>`
                         : ((p.pending_qty || 0) > 0 ? ` <span title="Blended with ${p.pending_qty} unit(s) on order not yet received, so this reflects their real ordered cost" style="font-size:0.72em;color:var(--info);font-weight:600;">(incl. pending)</span>` : '')}</td>
                     <td>$${parseFloat(p.line_total || 0).toFixed(2)}</td>
                     <td class="${p.current_stock >= p.quantity_required ? 'stock-ok' : 'stock-low'}">${p.current_stock}</td>
@@ -2798,7 +2800,7 @@
                 ? ''
                 : project.variation_costs.map(vc => `
                     <tr style="background: var(--bg-card-alt-row);">
-                        <td colspan="6" style="text-align: right;">Kit Cost — ${escHtml(vc.label)}:</td>
+                        <td colspan="6" style="text-align: right;">Kit Cost, ${escHtml(vc.label)}:</td>
                         <td colspan="3">$${parseFloat(vc.cost).toFixed(2)}</td>
                     </tr>`).join('');
 
@@ -2919,7 +2921,7 @@
             csv += `\n"FIXED PARTS BOM COST",,,,,$${parseFloat(project.fixed_bom_cost ?? project.total_bom_cost ?? 0).toFixed(2)}\n`;
             (project.variation_costs || []).forEach(vc => {
                 const label = (vc.label || '').replace(/"/g, '""');
-                csv += `"KIT COST — ${label}",,,,,$${parseFloat(vc.cost).toFixed(2)}\n`;
+                csv += `"KIT COST: ${label}",,,,,$${parseFloat(vc.cost).toFixed(2)}\n`;
             });
             
             // Create blob and download
@@ -3004,7 +3006,7 @@
                             <input type="number" id="partQty" class="form-input" min="1" value="1" required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(optional — leave blank to use the part's average cost automatically)</span></label>
+                            <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(optional; leave blank to use the part's average cost automatically)</span></label>
                             <input type="number" id="partCostOverride" class="form-input" min="0" step="0.0001" placeholder="Auto">
                         </div>
                         <div class="form-group">
@@ -3049,7 +3051,7 @@
                 'Add Variable Part to BOM',
                 `
                     <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9em;">
-                        Variable parts differ per product variation. Each attribute name (e.g. "Connector") can have multiple options — one part per option value (e.g. "Male", "Female").
+                        Variable parts differ per product variation. Each attribute name (e.g. "Connector") can have multiple options, one part per option value (e.g. "Male", "Female").
                     </p>
                     <form id="addVarPartForm">
                         <div class="form-group">
@@ -3081,7 +3083,7 @@
                             <input type="number" id="varPartQty" class="form-input" min="1" value="1" required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(optional — leave blank to use the part's average cost automatically)</span></label>
+                            <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(optional; leave blank to use the part's average cost automatically)</span></label>
                             <input type="number" id="varPartCostOverride" class="form-input" min="0" step="0.0001" placeholder="Auto">
                         </div>
                         <div class="flex flex-gap">
@@ -3151,7 +3153,7 @@
                         <input type="number" id="editPartQty" class="form-input" min="1" value="${currentQty}" required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(leave blank to use the automatic average cost — currently $${autoCost.toFixed(2)})</span></label>
+                        <label class="form-label">Cost Override <span style="color:var(--text-dim);font-weight:400;">(leave blank to use the automatic average cost, currently $${autoCost.toFixed(2)})</span></label>
                         <input type="number" id="editPartCostOverride" class="form-input" min="0" step="0.0001" placeholder="Auto ($${autoCost.toFixed(2)})" value="${currentOverride}">
                     </div>
                     <div class="flex flex-gap">
@@ -3360,7 +3362,7 @@
         async function deleteProject(id) {
             const proj = projects.find(p => p.id == id);
             const name = proj ? proj.project_name : 'this project';
-            if (!confirm(`Move "${name}" to trash?\n\nAll project data and BOM will be preserved — you can restore it from the trash bin.`)) return;
+            if (!confirm(`Move "${name}" to trash?\n\nAll project data and BOM will be preserved. You can restore it from the trash bin.`)) return;
             const formData = new FormData();
             formData.append('action', 'delete_project');
             formData.append('id', id);
@@ -3515,14 +3517,24 @@
             checkins = checkins || [];
             if (checkins.length === 0) return '';
 
+            const DAY = 86400000;
+            const fmtShort = d => (d.getMonth() + 1) + '/' + d.getDate();
+            const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+
             const completed = checkins
                 .filter(c => c.received == 1 && c.received_at)
                 .map(c => {
                     const orderDate = new Date(c.purchase_date + 'T00:00:00');
                     const receivedDate = new Date(c.received_at.split(' ')[0] + 'T00:00:00');
-                    const days = Math.max(0, Math.round((receivedDate - orderDate) / 86400000));
-                    return { date: orderDate, days, supplier: c.supplier_name || '', purchaseDate: c.purchase_date, receivedDate: c.received_at.split(' ')[0], quantity: c.quantity };
+                    const rawDays = Math.round((receivedDate - orderDate) / DAY);
+                    // Marked received the instant it was entered, with an order date the same
+                    // day or later (server timestamps can run a day behind the entered date):
+                    // that's stock already on hand being logged, not a tracked delivery.
+                    // Counting it as a 0-day order drags the average down.
+                    const onHand = c.created_at && c.received_at === c.created_at && rawDays <= 0;
+                    return { onHand, date: orderDate, days: Math.max(0, rawDays), supplier: c.supplier_name || '', purchaseDate: c.purchase_date, receivedDate: c.received_at.split(' ')[0], quantity: c.quantity };
                 })
+                .filter(c => !c.onHand)
                 .sort((a, b) => a.date - b.date);
 
             const pending = checkins.filter(c => c.received == 0);
@@ -3531,46 +3543,102 @@
                 return `
                     <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
                     <h4>Delivery Time</h4>
-                    <p style="color: var(--text-dim); text-align: center; padding: 1rem;">No completed orders yet — mark an order received to start tracking delivery time for this part.</p>
+                    <p style="color: var(--text-dim); text-align: center; padding: 1rem;">No completed orders yet. Mark an order received to start tracking delivery time for this part.</p>
                 `;
             }
 
             const avg = completed.reduce((sum, c) => sum + c.days, 0) / completed.length;
+            const tip = c => `<title>Ordered ${escHtml(c.purchaseDate)}, received ${escHtml(c.receivedDate)}: ${plural(c.days, 'day')}${c.supplier ? ' (' + escHtml(c.supplier) + ')' : ''}, qty ${c.quantity}</title>`;
+            const W = 640, padL = 34, padR = 16, padT = 18, padB = 26;
+            const plotW = W - padL - padR;
 
-            const W = 640, H = 160, padL = 34, padR = 16, padT = 14, padB = 26;
-            const plotW = W - padL - padR, plotH = H - padT - padB;
-            const maxDay = Math.max(avg, ...completed.map(c => c.days), 1);
-            const yFor = d => padT + plotH - (d / maxDay) * plotH;
-            const xFor = i => completed.length === 1 ? padL + plotW / 2 : padL + (i / (completed.length - 1)) * plotW;
+            // ── Bar chart: last 10 orders ──
+            const recent = completed.slice(-10);
+            const bH = 170, bPlotH = bH - padT - padB;
+            const bMax = Math.max(avg, ...recent.map(c => c.days), 1);
+            const bY = d => padT + bPlotH - (d / bMax) * bPlotH;
+            const slot = plotW / recent.length;
+            const barW = Math.min(44, slot * 0.6);
+            const barsSvg = recent.map((c, i) => {
+                const cx = padL + slot * (i + 0.5);
+                const y = bY(c.days);
+                const h = Math.max(1.5, padT + bPlotH - y);
+                return `
+                    <g>
+                        <rect x="${(cx - barW / 2).toFixed(1)}" y="${(padT + bPlotH - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="var(--accent-primary)">${tip(c)}</rect>
+                        <text x="${cx.toFixed(1)}" y="${(padT + bPlotH - h - 4).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-primary)" font-family="var(--font-mono)">${c.days}d</text>
+                        <text x="${cx.toFixed(1)}" y="${bH - 8}" text-anchor="middle" font-size="10" fill="var(--text-dim)">${fmtShort(c.date)}</text>
+                    </g>`;
+            }).join('');
+            const bAvgY = bY(avg);
+            const barChart = `
+                <div style="font-size:0.85em; font-weight:600; color:var(--text-secondary); margin:6px 0 2px;">Last ${plural(recent.length, 'order')}: days from order to receipt</div>
+                <svg viewBox="0 0 ${W} ${bH}" style="width:100%; max-width:${W}px; display:block;">
+                    <line x1="${padL}" y1="${padT + bPlotH}" x2="${W - padR}" y2="${padT + bPlotH}" stroke="var(--border-card)" stroke-width="1"/>
+                    ${barsSvg}
+                    <line x1="${padL}" y1="${bAvgY.toFixed(1)}" x2="${W - padR}" y2="${bAvgY.toFixed(1)}" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="4,3"/>
+                    <text x="${W - padR}" y="${(bAvgY - 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--warning)" font-weight="600">avg ${avg.toFixed(1)}d</text>
+                </svg>`;
 
-            const points = completed.map((c, i) => ({ x: xFor(i), y: yFor(c.days), ...c }));
-            const linePath = points.map((p, i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
-            const avgY = yFor(avg);
-            const yTicks = [0, maxDay / 2, maxDay].map(v => ({ v, y: yFor(v) }));
-
-            const dotsSvg = points.map(p => `
-                <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="var(--accent-primary)" stroke="var(--bg-card)" stroke-width="1.5">
-                    <title>${escHtml(p.purchaseDate)} → ${escHtml(p.receivedDate)} — ${p.days} day${p.days === 1 ? '' : 's'}${p.supplier ? ' (' + escHtml(p.supplier) + ')' : ''}, qty ${p.quantity}</title>
-                </circle>
-            `).join('');
-
-            const gridSvg = yTicks.map(t => `
-                <line x1="${padL}" y1="${t.y.toFixed(1)}" x2="${W - padR}" y2="${t.y.toFixed(1)}" stroke="var(--border-card)" stroke-width="1"/>
-                <text x="${padL - 6}" y="${(t.y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-dim)">${Math.round(t.v)}</text>
-            `).join('');
-
-            const firstLabel = completed[0].purchaseDate;
-            const lastLabel = completed[completed.length - 1].purchaseDate;
+            // ── Line chart: trend over time (x scaled by real order date) ──
+            let trendChart = '';
+            if (completed.length >= 2) {
+                const lH = 170, lPlotH = lH - padT - padB;
+                const t0 = completed[0].date.getTime(), t1 = completed[completed.length - 1].date.getTime();
+                const span = Math.max(t1 - t0, DAY);
+                const lX = t => padL + ((t - t0) / span) * plotW;
+                // Least-squares trend line (needs 3+ points to mean anything)
+                let fit = null;
+                if (completed.length >= 3) {
+                    const xs = completed.map(c => (c.date.getTime() - t0) / DAY), ys = completed.map(c => c.days);
+                    const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = ys.reduce((a, b) => a + b, 0) / ys.length;
+                    const sxx = xs.reduce((a, x) => a + (x - mx) ** 2, 0);
+                    const slope = sxx ? xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / sxx : 0;
+                    fit = { slope, a: my - slope * mx, b: my + slope * ((span / DAY) - mx) };
+                }
+                const lMax = Math.max(...completed.map(c => c.days), fit ? Math.max(fit.a, fit.b) : 0, 1);
+                const lY = d => padT + lPlotH - (Math.max(0, d) / lMax) * lPlotH;
+                const pts = completed.map(c => ({ x: lX(c.date.getTime()), y: lY(c.days), c }));
+                const path = pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+                const grid = [0, lMax / 2, lMax].map(v => `
+                    <line x1="${padL}" y1="${lY(v).toFixed(1)}" x2="${W - padR}" y2="${lY(v).toFixed(1)}" stroke="var(--border-card)" stroke-width="1"/>
+                    <text x="${padL - 6}" y="${(lY(v) + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-dim)">${Math.round(v)}</text>`).join('');
+                let trendNote = 'Add a third completed order to see a trend line.';
+                let fitSvg = '';
+                if (fit) {
+                    fitSvg = `<line x1="${padL}" y1="${lY(fit.a).toFixed(1)}" x2="${W - padR}" y2="${lY(fit.b).toFixed(1)}" stroke="var(--accent-secondary)" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.8"/>`;
+                    const perMonth = fit.slope * 30;
+                    trendNote = Math.abs(perMonth) < 0.5
+                        ? 'Trend: holding steady.'
+                        : `Trend: getting ${perMonth > 0 ? 'slower' : 'faster'} by about ${Math.abs(perMonth).toFixed(1)} days per month.`;
+                }
+                trendChart = `
+                    <div style="font-size:0.85em; font-weight:600; color:var(--text-secondary); margin:14px 0 2px;">Delivery time trend</div>
+                    <svg viewBox="0 0 ${W} ${lH}" style="width:100%; max-width:${W}px; display:block;">
+                        ${grid}
+                        ${fitSvg}
+                        <path d="${path}" fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        ${pts.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="var(--accent-primary)" stroke="var(--bg-card)" stroke-width="1.5">${tip(p.c)}</circle>`).join('')}
+                        <text x="${padL}" y="${lH - 6}" font-size="10" fill="var(--text-dim)">${escHtml(completed[0].purchaseDate)}</text>
+                        <text x="${W - padR}" y="${lH - 6}" text-anchor="end" font-size="10" fill="var(--text-dim)">${escHtml(completed[completed.length - 1].purchaseDate)}</text>
+                    </svg>
+                    <div style="font-size:0.8em; color:var(--text-dim);">${trendNote}</div>`;
+            }
 
             let etaHtml = '';
             if (pending.length > 0) {
+                const today = new Date(); today.setHours(0, 0, 0, 0);
                 etaHtml = `
-                    <div style="margin-top:8px; font-size:0.85em; color: var(--text-secondary);">
+                    <div style="margin-top:10px; font-size:0.85em; color: var(--text-secondary);">
                         ${pending.map(p => {
                             const orderDate = new Date(p.purchase_date + 'T00:00:00');
-                            const eta = new Date(orderDate.getTime() + Math.round(avg) * 86400000);
-                            const etaStr = eta.toISOString().split('T')[0];
-                            return `Pending order from ${escHtml(p.purchase_date)}${p.supplier_name ? ' (' + escHtml(p.supplier_name) + ')' : ''}: est. arrival <strong>${etaStr}</strong> (based on ${avg.toFixed(1)}d avg)`;
+                            const eta = new Date(orderDate.getTime() + Math.round(avg) * DAY);
+                            const etaStr = eta.getFullYear() + '-' + String(eta.getMonth() + 1).padStart(2, '0') + '-' + String(eta.getDate()).padStart(2, '0');
+                            const waited = Math.round((today - orderDate) / DAY);
+                            const label = eta < today
+                                ? `<strong style="color:var(--danger);">overdue</strong> (expected ${etaStr}, waiting ${plural(waited, 'day')} so far)`
+                                : `est. arrival <strong>${etaStr}</strong>`;
+                            return `Pending order from ${escHtml(p.purchase_date)}${p.supplier_name ? ' (' + escHtml(p.supplier_name) + ')' : ''}: ${label}, based on ${avg.toFixed(1)}d avg`;
                         }).join('<br>')}
                     </div>
                 `;
@@ -3580,17 +3648,10 @@
                 <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
                 <h4>Delivery Time</h4>
                 <p style="margin: 4px 0 10px 0; font-size: 0.9em; color: var(--text-secondary);">
-                    Average <strong>${avg.toFixed(1)} day${avg === 1 ? '' : 's'}</strong> from order to receipt, based on ${completed.length} completed order${completed.length === 1 ? '' : 's'}.
+                    Average <strong>${avg.toFixed(1)} day${avg === 1 ? '' : 's'}</strong> from order to receipt, based on ${plural(completed.length, 'completed order')}.
                 </p>
-                <svg viewBox="0 0 ${W} ${H}" style="width:100%; max-width:${W}px; height:${H}px; display:block;">
-                    ${gridSvg}
-                    <line x1="${padL}" y1="${avgY.toFixed(1)}" x2="${W - padR}" y2="${avgY.toFixed(1)}" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="4,3"/>
-                    <text x="${W - padR}" y="${(avgY - 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--warning)" font-weight="600">avg ${avg.toFixed(1)}d</text>
-                    <path d="${linePath}" fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    ${dotsSvg}
-                    <text x="${padL}" y="${H - 6}" font-size="10" fill="var(--text-dim)">${escHtml(firstLabel)}</text>
-                    <text x="${W - padR}" y="${H - 6}" text-anchor="end" font-size="10" fill="var(--text-dim)">${escHtml(lastLabel)}</text>
-                </svg>
+                ${barChart}
+                ${trendChart}
                 ${etaHtml}
             `;
         }
@@ -3707,7 +3768,7 @@
                             <button class="btn btn-primary btn-small" onclick="adjustStock(${part.id}); document.querySelector('.modal.active')?.remove();">+ Adjust Stock</button>
                         </div>
                         <p style="margin: -0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary);">
-                            Use this for stock that leaves or returns outside a normal purchase or sale — e.g. raw parts sent to JLCPCB for PCBA and consumed there, damage/loss, or a manual count correction.
+                            Use this for stock that leaves or returns outside a normal purchase or sale, e.g. raw parts sent to JLCPCB for PCBA and consumed there, damage/loss, or a manual count correction.
                         </p>
                         ${part.adjustments && part.adjustments.length > 0 ? `
                             <table class="data-table">
@@ -4075,7 +4136,7 @@
                         <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 0.75rem; margin-bottom: 1rem;">
                             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 500;">
                                 <input type="checkbox" id="checkinReceived" style="width: 16px; height: 16px; cursor: pointer;">
-                                Parts already received — update inventory now
+                                Parts already received: update inventory now
                             </label>
                             <p style="margin: 0.4rem 0 0 1.5rem; font-size: 0.85rem; color: var(--text-secondary);">
                                 Leave unchecked if parts are still in transit. You can mark them received later.
@@ -4292,7 +4353,7 @@
                     `Clone Order: ${part.part_name}`,
                     `
                         <p style="color: var(--text-secondary); margin-bottom: 1rem;">
-                            Cloned from ${checkin.purchase_date} — edit any fields before saving.
+                            Cloned from ${checkin.purchase_date}. Edit any fields before saving.
                         </p>
                         <form id="cloneCheckinForm">
                             <div class="form-group">
@@ -4330,7 +4391,7 @@
                             <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 0.75rem; margin-bottom: 1rem;">
                                 <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 500;">
                                     <input type="checkbox" id="cloneCheckinReceived" style="width: 16px; height: 16px; cursor: pointer;">
-                                    Parts already received — update inventory now
+                                    Parts already received: update inventory now
                                 </label>
                                 <p style="margin: 0.4rem 0 0 1.5rem; font-size: 0.85rem; color: var(--text-secondary);">
                                     Leave unchecked if parts are still in transit.
@@ -4707,7 +4768,7 @@
         const sortState = {
             parts: { column: 'part_number', direction: 'asc' },
             projects: { column: 'status', direction: 'desc' },  // desc puts 'active' before 'archived'
-            orders: { column: 'order_date', direction: 'desc' }
+            orders: { column: 'display_number', direction: 'desc' }
         };
 
         function sortData(data, column, direction) {
@@ -4722,14 +4783,9 @@
                     return direction === 'asc' ? aVal - bVal : bVal - aVal;
                 }
                 
-                aVal = String(aVal).toLowerCase();
-                bVal = String(bVal).toLowerCase();
-                
-                if (direction === 'asc') {
-                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-                } else {
-                    return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
-                }
+                // Number-aware so e.g. "WC-99" sorts before "WC-347"
+                const cmp = String(aVal).localeCompare(String(bVal), undefined, { numeric: true, sensitivity: 'base' });
+                return direction === 'asc' ? cmp : -cmp;
             });
         }
 
@@ -4924,11 +4980,11 @@
 
                 let breakEvenHtml;
                 if (d.total_invested <= 0) {
-                    breakEvenHtml = `<div style="padding:0.75rem;color:var(--text-dim);font-size:0.9em;">No R&amp;D or giveaway costs recorded for this project — nothing to break even against.</div>`;
+                    breakEvenHtml = `<div style="padding:0.75rem;color:var(--text-dim);font-size:0.9em;">No R&amp;D or giveaway costs recorded for this project, so nothing to break even against.</div>`;
                 } else if (d.broke_even) {
-                    breakEvenHtml = `<div style="padding:0.75rem;background:rgba(16,185,129,0.1);border-radius:4px;color:var(--success);font-weight:600;">✓ Broken even — gross profit has covered ${fmt(d.total_invested)} in R&amp;D/giveaway costs, with a surplus of ${fmt(d.gross_profit - d.total_invested)}.</div>`;
+                    breakEvenHtml = `<div style="padding:0.75rem;background:rgba(16,185,129,0.1);border-radius:4px;color:var(--success);font-weight:600;">✓ Broken even: gross profit has covered ${fmt(d.total_invested)} in R&amp;D/giveaway costs, with a surplus of ${fmt(d.gross_profit - d.total_invested)}.</div>`;
                 } else {
-                    breakEvenHtml = `<div style="padding:0.75rem;background:rgba(245,158,11,0.1);border-radius:4px;color:var(--warning);font-weight:600;">Not yet broken even — needs ${fmt(d.breakeven_remaining)} more gross profit to cover ${fmt(d.total_invested)} in R&amp;D/giveaway costs.</div>`;
+                    breakEvenHtml = `<div style="padding:0.75rem;background:rgba(245,158,11,0.1);border-radius:4px;color:var(--warning);font-weight:600;">Not yet broken even. Needs ${fmt(d.breakeven_remaining)} more gross profit to cover ${fmt(d.total_invested)} in R&amp;D/giveaway costs.</div>`;
                 }
 
                 const content = `
@@ -4952,7 +5008,7 @@
                     </table>
                     ${breakEvenHtml}
                     <div style="margin-top:0.75rem;font-size:0.8em;color:var(--text-dim);">
-                        Revenue/COGS reflect the selected period; R&amp;D and giveaway costs are all-time (sunk costs). Shipping and store-wide overhead aren't attributed per project since a single order can span multiple products — see the main Business Dashboard P&amp;L for those.
+                        Revenue/COGS reflect the selected period; R&amp;D and giveaway costs are all-time (sunk costs). Shipping and store-wide overhead aren't attributed per project since a single order can span multiple products. See the main Business Dashboard P&amp;L for those.
                     </div>
                 `;
                 modal.querySelector('.modal-content').innerHTML = `
@@ -5146,7 +5202,7 @@
             }
 
             if (roots.length === 0) {
-                list.innerHTML = '<li class="task-empty">No tasks yet — add one below.</li>';
+                list.innerHTML = '<li class="task-empty">No tasks yet. Add one below.</li>';
                 return;
             }
 
