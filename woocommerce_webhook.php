@@ -18,6 +18,11 @@
  * GET   /woocommerce_webhook.php?action=status
  *   — Show all project↔product mappings with calculated vs live WC stock.
  *
+ * GET   /woocommerce_webhook.php?action=prep_shipment&wc_order_id=X
+ *   — Manually (re-)create the rate-shopped Shippo Shipment for one order.
+ *     Clears any previous claim/error first, so it re-runs even if already
+ *     prepped or previously failed. See "Shippo Shipment Prep" in CLAUDE.md.
+ *
  * ── Inventory deduction logic ─────────────────────────────────────────────────
  * Statuses that trigger deduction:  processing, on-hold
  * Statuses that trigger restoration: cancelled, refunded
@@ -124,8 +129,35 @@ if ($method === 'GET') {
         exit;
     }
 
+    if ($action === 'prep_shipment' && isset($_GET['wc_order_id'])) {
+        $wc_order_id = (int) $_GET['wc_order_id'];
+
+        $stmt = $db->prepare("SELECT id FROM orders WHERE wc_order_id = ?");
+        $stmt->execute([$wc_order_id]);
+        $tracker_order = $stmt->fetch();
+        if (!$tracker_order) {
+            http_response_code(404);
+            echo json_encode(['error' => "No tracker order found for wc_order_id $wc_order_id"]);
+            exit;
+        }
+
+        $wcOrder = wc_fetch_order($wc_order_id);
+        if (!$wcOrder) {
+            http_response_code(502);
+            echo json_encode(['error' => 'Could not fetch order from WooCommerce']);
+            exit;
+        }
+
+        // Manual retry clears any previous claim/result so prep can run again.
+        $db->prepare("UPDATE orders SET shippo_prep_started_at = NULL, shippo_shipment_id = NULL, shippo_shipment_error = NULL WHERE id = ?")
+           ->execute([$tracker_order['id']]);
+
+        echo json_encode(wc_prep_shippo_shipment($db, $wcOrder, (int) $tracker_order['id']));
+        exit;
+    }
+
     http_response_code(400);
-    echo json_encode(['error' => 'Unknown action. Use: sync, sync_all, status']);
+    echo json_encode(['error' => 'Unknown action. Use: sync, sync_all, status, prep_shipment']);
     exit;
 }
 
@@ -175,9 +207,20 @@ foreach ($result['affected_projects'] as $project_id) {
     $sync_results[] = wc_sync_project($db, $project_id);
 }
 
+// Prep a rate-shopped Shippo shipment (correct parcel + carrier) so labels
+// can be bulk-bought later without manual per-order fixing. Only on the
+// order's first arrival at processing/on-hold — wc_prep_shippo_shipment()
+// itself is idempotent, but there's no reason to touch Shippo for statuses
+// that don't need a label yet. Never blocks/rolls back inventory on failure.
+$shippo_prep_result = null;
+if (in_array($order['status'] ?? '', ['processing', 'on-hold'])) {
+    $shippo_prep_result = wc_prep_shippo_shipment($db, $order, $result['order_id']);
+}
+
 echo json_encode([
     'success'      => true,
     'wc_order_id'  => $result['wc_order_id'],
     'item_log'     => $result['item_log'],
     'sync_results' => $sync_results,
+    'shippo_prep'  => $shippo_prep_result,
 ]);

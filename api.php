@@ -1680,12 +1680,14 @@ if ($action === 'save_order') {
 
     $db->beginTransaction();
     try {
+        $already_sticker_deducted = false;
         if ($id) {
-            $stmt = $db->prepare("SELECT status FROM orders WHERE id = ?");
+            $stmt = $db->prepare("SELECT status, sticker_deducted FROM orders WHERE id = ?");
             $stmt->execute([$id]);
             $old_order = $stmt->fetch();
             if (!$old_order) throw new Exception('Order not found');
             $old_status = $old_order['status'];
+            $already_sticker_deducted = (bool) $old_order['sticker_deducted'];
 
             $db->prepare("
                 UPDATE orders SET order_number = ?, customer_name = ?, customer_email = ?, customer_phone = ?, customer_callsign = ?,
@@ -1708,6 +1710,18 @@ if ($action === 'save_order') {
             $order_id   = (int) $db->lastInsertId();
             $old_status = null;
         }
+
+        // KI6CR Labs Sticker: one per order regardless of line items/quantity — not a BOM part.
+        if ($should_deduct && !$already_sticker_deducted) {
+            wc_deduct_order_sticker($db);
+            $sticker_deducted = 1;
+        } elseif (!$should_deduct && $already_sticker_deducted) {
+            wc_restore_order_sticker($db);
+            $sticker_deducted = 0;
+        } else {
+            $sticker_deducted = $already_sticker_deducted ? 1 : 0;
+        }
+        $db->prepare("UPDATE orders SET sticker_deducted = ? WHERE id = ?")->execute([$sticker_deducted, $order_id]);
 
         $stmt = $db->prepare("SELECT id, project_id, quantity, variation_combo_key, inventory_deducted FROM order_items WHERE order_id = ?");
         $stmt->execute([$order_id]);
@@ -1776,6 +1790,13 @@ if ($action === 'delete_order') {
     $id = (int)($_POST['id'] ?? 0);
 
     // Restore any deducted inventory before the order (and its items, via FK cascade) is removed.
+    $stmt = $db->prepare("SELECT sticker_deducted FROM orders WHERE id = ?");
+    $stmt->execute([$id]);
+    $ord = $stmt->fetch();
+    if ($ord && $ord['sticker_deducted']) {
+        wc_restore_order_sticker($db);
+    }
+
     $stmt = $db->prepare("SELECT project_id, quantity, variation_combo_key FROM order_items WHERE order_id = ? AND inventory_deducted = 1");
     $stmt->execute([$id]);
     foreach ($stmt->fetchAll() as $item) {

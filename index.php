@@ -2204,7 +2204,7 @@
                 const tbody = document.querySelector('#ordersTable tbody');
                 tbody.innerHTML = orders.map(o => `
                     <tr>
-                        <td><a href="order_detail.php?id=${o.id}" style="color:var(--accent-primary);font-weight:bold;text-decoration:none;">${o.order_number}</a></td>
+                        <td><a href="order_detail.php?id=${o.id}" style="color:var(--accent-primary);font-weight:bold;text-decoration:none;">${o.wc_display_number || o.order_number}</a></td>
                         <td>${o.order_date}</td>
                         <td>${o.customer_name}</td>
                         <td>${o.customer_callsign || '-'}</td>

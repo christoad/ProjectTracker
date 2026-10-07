@@ -666,6 +666,36 @@ function wc_restore_bom_inventory($db, $project_id, $order_qty, ?string $combo_k
     return $log;
 }
 
+/**
+ * The KI6CR Labs Sticker (PKG-007) ships once per order regardless of how
+ * many products/quantities are in the cart, so it can't live in project_parts
+ * (which deducts per BOM part-per-kit). Deducted/restored once per order via
+ * orders.sticker_deducted, in parallel with the per-line-item BOM deductions.
+ */
+function wc_deduct_order_sticker($db): ?array {
+    $stmt = $db->prepare("SELECT id, part_name, current_stock FROM parts WHERE part_number = 'PKG-007'");
+    $stmt->execute();
+    $part = $stmt->fetch();
+    if (!$part) return null;
+
+    $old_stock = (int) $part['current_stock'];
+    $new_stock = max(0, $old_stock - 1);
+    $db->prepare("UPDATE parts SET current_stock = ? WHERE id = ?")->execute([$new_stock, $part['id']]);
+    return ['part_id' => $part['id'], 'part_name' => $part['part_name'], 'old_stock' => $old_stock, 'new_stock' => $new_stock];
+}
+
+function wc_restore_order_sticker($db): ?array {
+    $stmt = $db->prepare("SELECT id, part_name, current_stock FROM parts WHERE part_number = 'PKG-007'");
+    $stmt->execute();
+    $part = $stmt->fetch();
+    if (!$part) return null;
+
+    $old_stock = (int) $part['current_stock'];
+    $new_stock = $old_stock + 1;
+    $db->prepare("UPDATE parts SET current_stock = ? WHERE id = ?")->execute([$new_stock, $part['id']]);
+    return ['part_id' => $part['id'], 'part_name' => $part['part_name'], 'old_stock' => $old_stock, 'new_stock' => $new_stock];
+}
+
 // ── WooCommerce order management ──────────────────────────────────────────────
 
 /**
@@ -752,7 +782,308 @@ function wc_add_order_note($wc_order_id, string $note, bool $customer_note = fal
     return ['error' => $result['message'] ?? "HTTP $http_code"];
 }
 
+// ── Shippo shipment prep ─────────────────────────────────────────────────────
+//
+// Creates a rate-shopped Shippo Shipment object (correct parcel weight/dims,
+// scoped to the carrier the customer actually paid for) as soon as an order
+// is paid, so bulk-buying labels later in Shippo's dashboard doesn't need
+// per-order manual fixing. Never purchases a label — prep only. See
+// CLAUDE.md "Shippo Shipment Prep".
+
+// Standard packaging as of 2026-09-22 — see CLAUDE.md "Sticker & Packaging Change".
+// 5"x8" flat bubble mailer, 1/8" thick; empty mailer weighs 0.35oz.
+const SHIPPO_PARCEL_LENGTH_IN = 8;
+const SHIPPO_PARCEL_WIDTH_IN  = 5;
+const SHIPPO_PARCEL_HEIGHT_IN = 0.125;
+const SHIPPO_MAILER_TARE_OZ   = 0.35;
+const SHIPPO_MIN_PARCEL_OZ    = 0.5; // floor if computed weight is oddly zero
+
+function shippo_get_config(): ?array {
+    static $cfg = null;
+    if ($cfg !== null) return $cfg;
+
+    $env = parse_ini_file(__DIR__ . '/.env');
+    if (empty($env['SHIPPO_API_TOKEN'])) return null;
+
+    $cfg = [
+        'token'        => $env['SHIPPO_API_TOKEN'],
+        'from_name'    => $env['FROM_NAME'] ?? '',
+        'from_company' => $env['FROM_COMPANY'] ?? '',
+        'from_street'  => $env['FROM_STREET'] ?? '',
+        'from_city'    => $env['FROM_CITY'] ?? '',
+        'from_state'   => $env['FROM_STATE'] ?? '',
+        'from_zip'     => $env['FROM_ZIP'] ?? '',
+    ];
+    return $cfg;
+}
+
+/**
+ * Map a Shippo servicelevel token (e.g. "usps_ground_advantage", "ups_ground",
+ * "dhl_express_worldwide") to the carrier key used by /carrier_accounts/.
+ * The wc-shippo-shipping plugin stores this exact token on the order's
+ * shipping_lines[].meta_data under key "service" — confirmed by inspecting
+ * live orders, see CLAUDE.md. Longest/most-specific prefixes are checked
+ * first so "dhl_express_" wins over a hypothetical bare "dhl_".
+ */
+function shippo_carrier_for_service_token(string $service): ?string {
+    $prefixes = [
+        'dhl_express_' => 'dhl_express',
+        'usps_'        => 'usps',
+        'ups_'         => 'ups',
+        'fedex_'       => 'fedex',
+    ];
+    foreach ($prefixes as $prefix => $carrier) {
+        if (strpos($service, $prefix) === 0) return $carrier;
+    }
+    return null;
+}
+
+/**
+ * Look up the active Shippo carrier_account object_id for a carrier key.
+ * UPS has two active Shippo-provided accounts (US and CA, distinguished by
+ * the `metadata` field) — always skip the CA one, since this store ships
+ * from California.
+ */
+function shippo_get_carrier_account_id(string $carrier): ?string {
+    static $cache = [];
+    if (array_key_exists($carrier, $cache)) return $cache[$carrier];
+
+    $cfg = shippo_get_config();
+    if (!$cfg) return $cache[$carrier] = null;
+
+    $best = null;
+    $url  = 'https://api.goshippo.com/carrier_accounts/?results=100';
+    while ($url) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => ['Authorization: ShippoToken ' . $cfg['token']],
+            CURLOPT_TIMEOUT        => 10,
+        ]);
+        $response  = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($http_code !== 200) break;
+
+        $data = json_decode($response, true);
+        foreach (($data['results'] ?? []) as $acct) {
+            if (($acct['carrier'] ?? '') !== $carrier || empty($acct['active'])) continue;
+            if (($acct['metadata'] ?? '') === 'CA') continue;
+            $best = $acct['object_id'];
+            break 2;
+        }
+        $url = $data['next'] ?? null;
+    }
+    return $cache[$carrier] = $best;
+}
+
+/** Fetch a WooCommerce product's (or variation's) weight in ounces, or null if unset/zero. */
+function wc_fetch_item_weight_oz(int $wc_product_id, int $wc_variation_id = 0): ?float {
+    $cfg = wc_get_config();
+    if (!$cfg) return null;
+
+    $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . $wc_product_id;
+    if ($wc_variation_id) $url .= '/variations/' . $wc_variation_id;
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+        CURLOPT_TIMEOUT        => 10,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code !== 200) return null;
+    $data   = json_decode($response, true);
+    $weight = $data['weight'] ?? '';
+    return ($weight !== '' && is_numeric($weight) && (float) $weight > 0) ? (float) $weight : null;
+}
+
+/**
+ * Prep a rate-shopped Shippo Shipment for a paid WooCommerce order. Does NOT
+ * purchase a label or spend money — creates the Shipment object only, so it
+ * shows up with the correct parcel + carrier when Chris buys the label later
+ * in Shippo's dashboard.
+ *
+ * Idempotent via orders.shippo_prep_started_at, claimed with an atomic UPDATE
+ * (`... WHERE shippo_shipment_id IS NULL AND shippo_prep_started_at IS NULL`)
+ * so the near-simultaneous order.created/order.updated webhook deliveries
+ * can't both create a shipment for the same order — a DB row lock can't be
+ * held across the external Shippo API call, so this claims first instead.
+ * Never throws: failures are logged to orders.shippo_shipment_error and
+ * wc_sync.log rather than blocking the inventory-deduction flow that calls it.
+ */
+function wc_prep_shippo_shipment($db, array $wcOrder, int $order_id): array {
+    $wc_order_id = (int) ($wcOrder['id'] ?? 0);
+
+    $cfg = shippo_get_config();
+    if (!$cfg) return ['skipped' => true, 'reason' => 'SHIPPO_API_TOKEN not set in .env'];
+
+    $claim = $db->prepare("
+        UPDATE orders SET shippo_prep_started_at = NOW()
+        WHERE id = ? AND shippo_shipment_id IS NULL AND shippo_prep_started_at IS NULL
+    ");
+    $claim->execute([$order_id]);
+    if ($claim->rowCount() === 0) {
+        return ['skipped' => true, 'reason' => 'Already prepped or in progress for this order'];
+    }
+
+    // KH1 kit / KH1 replacement parts ship in their own box, not the standard
+    // mailer this feature assumes — out of scope for now (see CLAUDE.md).
+    foreach (($wcOrder['line_items'] ?? []) as $item) {
+        if (stripos($item['name'] ?? '', 'KH1') !== false || stripos($item['parent_name'] ?? '', 'KH1') !== false) {
+            $reason = 'Order contains a KH1 product — out of scope for Shippo shipment prep';
+            $db->prepare("UPDATE orders SET shippo_shipment_error = ? WHERE id = ?")->execute([$reason, $order_id]);
+            wc_log('shippo_prep', $reason, ['wc_order_id' => $wc_order_id]);
+            return ['skipped' => true, 'reason' => $reason];
+        }
+    }
+
+    // Parcel weight = sum of each line item's live WC product/variation weight
+    // (oz) x quantity, plus the empty-mailer tare. Never hardcode weights —
+    // always pulled fresh from WooCommerce.
+    $weight_oz = SHIPPO_MAILER_TARE_OZ;
+    foreach (($wcOrder['line_items'] ?? []) as $item) {
+        $wc_product_id   = (int) ($item['product_id'] ?? 0);
+        $wc_variation_id = (int) ($item['variation_id'] ?? 0);
+        $qty             = max(1, (int) ($item['quantity'] ?? 1));
+        if (!$wc_product_id) continue;
+
+        $item_weight = wc_fetch_item_weight_oz($wc_product_id, $wc_variation_id);
+        if ($item_weight === null) {
+            wc_log('shippo_prep', "Could not fetch weight for product $wc_product_id" . ($wc_variation_id ? "/variation $wc_variation_id" : ''), ['wc_order_id' => $wc_order_id]);
+            continue;
+        }
+        $weight_oz += $item_weight * $qty;
+    }
+    $weight_oz = max($weight_oz, SHIPPO_MIN_PARCEL_OZ);
+
+    // Resolve the carrier the customer actually paid for at checkout from the
+    // wc-shippo-shipping plugin's own servicelevel token, stored on
+    // shipping_lines[].meta_data under key "service" (e.g. "usps_priority") —
+    // confirmed against live orders, see CLAUDE.md. Falls back to an unscoped
+    // shipment (all carriers) if the token is missing/unrecognized rather
+    // than guessing wrong.
+    $service_token = null;
+    foreach (($wcOrder['shipping_lines'] ?? []) as $sl) {
+        foreach (($sl['meta_data'] ?? []) as $md) {
+            if (($md['key'] ?? '') === 'service') { $service_token = $md['value'] ?? null; break 2; }
+        }
+    }
+    $carrier_account_id = null;
+    if ($service_token) {
+        $carrier = shippo_carrier_for_service_token($service_token);
+        if ($carrier) $carrier_account_id = shippo_get_carrier_account_id($carrier);
+    }
+    if ($service_token && !$carrier_account_id) {
+        wc_log('shippo_prep', "Could not resolve carrier account for service token '$service_token' — creating unscoped shipment", ['wc_order_id' => $wc_order_id]);
+    }
+
+    $shipping = $wcOrder['shipping'] ?? [];
+    $billing  = $wcOrder['billing'] ?? [];
+    $addr     = !empty($shipping['address_1']) ? $shipping : $billing;
+
+    $payload = [
+        'address_from' => [
+            'name'    => $cfg['from_name'],
+            'company' => $cfg['from_company'],
+            'street1' => $cfg['from_street'],
+            'city'    => $cfg['from_city'],
+            'state'   => $cfg['from_state'],
+            'zip'     => $cfg['from_zip'],
+            'country' => 'US',
+        ],
+        'address_to' => [
+            'name'    => trim(($addr['first_name'] ?? '') . ' ' . ($addr['last_name'] ?? '')),
+            'company' => $addr['company'] ?? '',
+            'street1' => $addr['address_1'] ?? '',
+            'street2' => $addr['address_2'] ?? '',
+            'city'    => $addr['city'] ?? '',
+            'state'   => $addr['state'] ?? '',
+            'zip'     => $addr['postcode'] ?? '',
+            'country' => $addr['country'] ?: 'US',
+            'phone'   => $billing['phone'] ?? '',
+            'email'   => $billing['email'] ?? '',
+        ],
+        'parcels' => [[
+            'length'        => (string) SHIPPO_PARCEL_LENGTH_IN,
+            'width'         => (string) SHIPPO_PARCEL_WIDTH_IN,
+            'height'        => (string) SHIPPO_PARCEL_HEIGHT_IN,
+            'distance_unit' => 'in',
+            'weight'        => (string) round($weight_oz, 2),
+            'mass_unit'     => 'oz',
+        ]],
+        'async'    => false,
+        'metadata' => substr('WC Order ' . ($wcOrder['number'] ?? $wc_order_id) . ($service_token ? " | service:$service_token" : ''), 0, 100),
+    ];
+    if ($carrier_account_id) $payload['carrier_accounts'] = [$carrier_account_id];
+
+    $ch = curl_init('https://api.goshippo.com/shipments/');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_HTTPHEADER     => ['Authorization: ShippoToken ' . $cfg['token'], 'Content-Type: application/json'],
+        CURLOPT_TIMEOUT        => 20,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_err  = curl_error($ch);
+    curl_close($ch);
+
+    $result = json_decode($response, true);
+
+    if ($http_code >= 200 && $http_code < 300 && !empty($result['object_id'])) {
+        $db->prepare("UPDATE orders SET shippo_shipment_id = ?, shippo_shipment_error = NULL WHERE id = ?")
+           ->execute([$result['object_id'], $order_id]);
+        wc_log('shippo_prep', 'Created Shippo shipment', [
+            'wc_order_id'     => $wc_order_id,
+            'shipment_id'     => $result['object_id'],
+            'weight_oz'       => round($weight_oz, 2),
+            'dims_in'         => SHIPPO_PARCEL_LENGTH_IN . 'x' . SHIPPO_PARCEL_WIDTH_IN . 'x' . SHIPPO_PARCEL_HEIGHT_IN,
+            'service_token'   => $service_token,
+            'carrier_account' => $carrier_account_id,
+        ]);
+        return [
+            'success'             => true,
+            'shipment_id'         => $result['object_id'],
+            'weight_oz'           => round($weight_oz, 2),
+            'carrier_account_id'  => $carrier_account_id,
+            'service_token'       => $service_token,
+        ];
+    }
+
+    $error     = ($result['messages'] ?? $result['detail'] ?? $curl_err) ?: "HTTP $http_code";
+    $error_str = is_array($error) ? json_encode($error) : (string) $error;
+    $db->prepare("UPDATE orders SET shippo_shipment_error = ? WHERE id = ?")->execute([$error_str, $order_id]);
+    wc_log('shippo_prep', 'Failed to create Shippo shipment', ['wc_order_id' => $wc_order_id, 'error' => $error_str, 'http_code' => $http_code]);
+    return ['error' => $error_str, 'http_code' => $http_code];
+}
+
 // ── Order + line-item capture ────────────────────────────────────────────────
+
+/** Fetch a single WooCommerce order by its internal ID via REST API. */
+function wc_fetch_order(int $wc_order_id): ?array {
+    $cfg = wc_get_config();
+    if (!$cfg) return null;
+
+    $url = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/orders/' . $wc_order_id;
+    $ch  = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+        CURLOPT_TIMEOUT        => 15,
+    ]);
+    $response  = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code !== 200) return null;
+    $data = json_decode($response, true);
+    return is_array($data) ? $data : null;
+}
 
 /** Fetch one page of WooCommerce orders via REST API. Empty array = no more pages. */
 function wc_fetch_orders_page(int $page, int $perPage = 100): array {
@@ -819,7 +1150,8 @@ function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
     $should_deduct  = in_array($wc_status, ['processing', 'on-hold']);
     $should_restore = in_array($wc_status, ['cancelled', 'refunded']);
 
-    $order_number   = 'WC-' . $wc_order_id;
+    $order_number       = 'WC-' . $wc_order_id;
+    $wc_display_number  = isset($wcOrder['number']) ? (string) $wcOrder['number'] : null;
     $tracker_status = wc_map_order_status($wc_status);
     $customer       = trim(($wcOrder['billing']['first_name'] ?? '') . ' ' . ($wcOrder['billing']['last_name'] ?? ''));
     $order_date     = str_replace('T', ' ', substr($wcOrder['date_created'] ?? date('c'), 0, 19));
@@ -828,7 +1160,7 @@ function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
     try {
         // Lock (or gap-lock, if it doesn't exist yet) the parent row for this WC order —
         // serializes near-simultaneous order.created + order.updated webhook deliveries.
-        $stmt = $db->prepare("SELECT id, status FROM orders WHERE wc_order_id = ? FOR UPDATE");
+        $stmt = $db->prepare("SELECT id, status, sticker_deducted FROM orders WHERE wc_order_id = ? FOR UPDATE");
         $stmt->execute([$wc_order_id]);
         $existingOrder = $stmt->fetch();
 
@@ -844,9 +1176,29 @@ function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
             return ['skipped' => true, 'wc_order_id' => $wc_order_id, 'reason' => "Status '$wc_status' requires no inventory action"];
         }
 
+        // KI6CR Labs Sticker: exactly one per order, independent of the per-line-item
+        // BOM deductions below. Gated on its own flag since it isn't tied to any
+        // order_items row.
+        $already_sticker_deducted = $existingOrder && !empty($existingOrder['sticker_deducted']);
+        $sticker_log = null;
+        if ($deductInventory && $should_deduct && !$already_sticker_deducted) {
+            $sticker_log = wc_deduct_order_sticker($db);
+            $sticker_deducted = 1;
+        } elseif ($deductInventory && $should_restore && $already_sticker_deducted) {
+            $sticker_log = wc_restore_order_sticker($db);
+            $sticker_deducted = 0;
+        } elseif (!$deductInventory) {
+            // Reconciliation: reflect WC's own state without mutating stock.
+            $sticker_deducted = in_array($wc_status, ['processing', 'on-hold', 'completed']) ? 1 : 0;
+        } else {
+            $sticker_deducted = $already_sticker_deducted ? 1 : 0;
+        }
+
         $orderFields = [
-            'order_number'    => $order_number,
-            'wc_order_id'     => $wc_order_id,
+            'sticker_deducted'   => $sticker_deducted,
+            'order_number'       => $order_number,
+            'wc_display_number'  => $wc_display_number,
+            'wc_order_id'        => $wc_order_id,
             'customer_name'   => $customer ?: 'WooCommerce Customer',
             'customer_email'  => $wcOrder['billing']['email'] ?? '',
             'customer_phone'  => $wcOrder['billing']['phone'] ?? '',
@@ -959,6 +1311,7 @@ function wc_upsert_order($db, array $wcOrder, bool $deductInventory): array {
             'order_id'          => $order_id,
             'item_log'          => $item_log,
             'affected_projects' => array_values(array_unique($affected_projects)),
+            'sticker'           => $sticker_log,
         ];
     } catch (Exception $e) {
         $db->rollBack();

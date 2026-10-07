@@ -39,7 +39,7 @@ if (!$ship_zip_fallback && !empty($order['shipping_address'])) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><?= htmlspecialchars($order['order_number']) ?> — KI6CR Orders</title>
+<title><?= htmlspecialchars($order['wc_display_number'] ?? $order['order_number']) ?>: KI6CR Orders</title>
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -128,7 +128,7 @@ body { font-family: var(--font-body); background: var(--bg-body); color: var(--t
     </div>
     <div class="flex">
         <a href="index.php" class="btn" style="background:rgba(255,255,255,0.10);border-color:rgba(255,255,255,0.22);color:rgba(255,255,255,0.82);">← Orders</a>
-        <span style="font-family:'IBM Plex Mono',monospace;color:#fff;font-weight:700;font-size:13px;"><?= htmlspecialchars($order['order_number']) ?></span>
+        <span style="font-family:'IBM Plex Mono',monospace;color:#fff;font-weight:700;font-size:13px;"><?= htmlspecialchars($order['wc_display_number'] ?? $order['order_number']) ?></span>
         <span class="badge badge-<?= statusBadge($order['status']) ?>"><?= htmlspecialchars($order['status']) ?></span>
     </div>
 </div>
@@ -244,7 +244,7 @@ body { font-family: var(--font-body); background: var(--bg-body); color: var(--t
         </div>
         <?php if (!empty($order['shipping_address']) && empty($order['ship_street'])): ?>
         <div class="notice n-warning" style="margin-top:0.75rem;">
-            Legacy address on file — fill in the fields above.<br>
+            Legacy address on file, fill in the fields above.<br>
             <small style="opacity:0.8;"><?= nl2br(htmlspecialchars($order['shipping_address'])) ?></small>
         </div>
         <?php endif; ?>
