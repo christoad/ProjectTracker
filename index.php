@@ -1068,6 +1068,24 @@
                         </table>
                     </div>
                 </div>
+
+                <div class="card" id="orderImportCard" style="margin-top: 1.5rem;">
+                    <div class="card-header">
+                        <h2 class="card-title">Import a Parts Order</h2>
+                    </div>
+                    <div style="padding: 1rem;">
+                        <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--text-secondary);">
+                            Paste an invoice, order confirmation, or order page from any supplier. Claude reads it, matches each line to a part, and splits shipping, tax and fees across the lines. You review everything before it's added as pending orders.
+                        </p>
+                        <textarea id="orderImportText" class="form-input" rows="8" style="width: 100%; font-family: var(--font-mono); font-size: 0.8rem; resize: vertical;" placeholder="Paste the whole page or email here. Menus and other clutter are fine."></textarea>
+                        <div style="display: flex; align-items: center; gap: 12px; margin-top: 0.75rem; flex-wrap: wrap;">
+                            <button class="btn btn-primary" id="orderImportReadBtn" onclick="readPastedOrder()">Read Order</button>
+                            <span id="orderImportStatus" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                            <a href="anthropic_key.php" style="margin-left: auto; font-size: 0.8rem; color: var(--text-dim);">Claude API key</a>
+                        </div>
+                        <div id="orderImportReview"></div>
+                    </div>
+                </div>
             </section>
 
             <!-- Orders Section -->
@@ -1399,7 +1417,14 @@
         let variationAttrOptions = {};
         let orders = [];
         let bottleneckInsightsData = [];
-        let bottleneckTarget = 50;
+        // Remembered per browser so the dashboard reopens on the last kit count picked
+        let bottleneckTarget = (() => {
+            try { return parseInt(localStorage.getItem('bottleneckTarget'), 10) || 50; } catch (e) { return 50; }
+        })();
+        document.addEventListener('DOMContentLoaded', () => {
+            const sel = document.getElementById('bottleneckTargetSelect');
+            if (sel && [...sel.options].some(o => o.value === String(bottleneckTarget))) sel.value = String(bottleneckTarget);
+        });
         let bottleneckExpandedProjects = new Set();
         let bottleneckInitialized = false;
 
@@ -1570,6 +1595,7 @@
 
         function setBottleneckTarget(val) {
             bottleneckTarget = val;
+            try { localStorage.setItem('bottleneckTarget', String(val)); } catch (e) {}
             renderBottleneckInsights();
         }
 
@@ -2093,6 +2119,236 @@
         }
 
         // Parts
+        // ── Import a Parts Order (Parts tab) ──
+        // parts_order_import.php has Claude read the paste and returns matched lines with
+        // shipping/tax/fees already prorated; nothing is saved until "Add" is clicked,
+        // which records each line through the normal checkin_inventory action.
+        let orderImportData = null;
+
+        function orderImportStatus(msg, isError = false) {
+            const el = document.getElementById('orderImportStatus');
+            el.textContent = msg;
+            el.style.color = isError ? 'var(--danger)' : 'var(--text-secondary)';
+        }
+
+        async function readPastedOrder() {
+            const text = document.getElementById('orderImportText').value.trim();
+            if (!text) { orderImportStatus('Paste an order first.', true); return; }
+            const btn = document.getElementById('orderImportReadBtn');
+            btn.disabled = true;
+            document.getElementById('orderImportReview').innerHTML = '';
+            orderImportStatus('Claude is reading the order. This usually takes 15 to 60 seconds...');
+            try {
+                const fd = new FormData();
+                fd.append('action', 'parse');
+                fd.append('text', text);
+                const resp = await fetch('parts_order_import.php', { method: 'POST', body: fd });
+                const result = await resp.json().catch(() => ({ error: `Server error (HTTP ${resp.status}).` }));
+                if (result.error) { orderImportStatus(result.error, true); return; }
+                if (allPartsCache.length === 0) await loadParts();
+                orderImportData = result.order;
+                orderImportStatus('');
+                renderOrderImportReview();
+            } catch (e) {
+                orderImportStatus('Could not reach the server. Check your connection and try again.', true);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function localToday() {
+            const d = new Date();
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        }
+
+        function renderOrderImportReview() {
+            const o = orderImportData;
+            const money = v => '$' + Number(v).toFixed(2);
+            const unitMoney = v => '$' + (v > 0 && v < 0.1 ? v.toFixed(4) : v.toFixed(3));
+            const partOptions = orderImportPartOptions;
+
+            const rows = o.lines.map((l, i) => `
+                <tr>
+                    <td style="min-width: 220px;">
+                        <select class="form-input oi-part" data-i="${i}" data-prev="${l.matched_part_id || ''}" style="width: 100%;" onchange="onOrderImportPartChange(${i}, this)">${partOptions(l.matched_part_id)}</select>
+                        <div class="oi-note" data-i="${i}" style="font-size: 0.75rem; margin-top: 3px; color: ${l.matched_part_id ? 'var(--text-dim)' : 'var(--warning)'};">${escHtml(l.match_note)}${!l.matched_part_id && l.suggested_name ? ` <a href="#" onclick="event.preventDefault(); createPartFromImportLine(${i});">Create &ldquo;${escHtml(l.suggested_name)}&rdquo;</a>` : ''}</div>
+                    </td>
+                    <td>
+                        <div>${escHtml(l.description)}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-dim);">${l.supplier_part_number ? escHtml(l.supplier_part_number) + ' &middot; ' : ''}${escHtml(l.quantity_text)}</div>
+                    </td>
+                    <td><input type="number" min="1" step="1" class="form-input oi-units" data-i="${i}" value="${l.units}" style="width: 90px;" oninput="updateOrderImportRow(${i})"></td>
+                    <td style="font-family: var(--font-mono); white-space: nowrap;">${money(l.line_total)}</td>
+                    <td style="font-family: var(--font-mono); white-space: nowrap;">${money(l.extra_share)}</td>
+                    <td style="font-family: var(--font-mono); white-space: nowrap; font-weight: 600;">${money(l.gross_total)}</td>
+                    <td style="font-family: var(--font-mono); white-space: nowrap;" id="oiUnit${i}">${l.units > 0 ? unitMoney(l.gross_total / l.units) : ''}</td>
+                </tr>`).join('');
+
+            const lineSum = o.lines.reduce((s, l) => s + Number(l.gross_total), 0);
+            const charges = [
+                ['Merchandise', o.merchandise_total], ['Shipping', o.shipping], ['Tax / duties', o.tax], ['Other fees', o.other_fees]
+            ].filter(([, v]) => Number(v) !== 0).map(([k, v]) => `${k} ${money(v)}`).join(' &middot; ');
+            const totalCheck = o.grand_total !== null
+                ? (Math.abs(lineSum - o.grand_total) < 0.015
+                    ? `<span style="color: var(--success);">Lines add up to the invoice total of ${money(o.grand_total)}.</span>`
+                    : `<span style="color: var(--danger);">Lines add up to ${money(lineSum)} but the invoice total is ${money(o.grand_total)}.</span>`)
+                : `Lines total ${money(lineSum)} (no grand total found on the invoice).`;
+            const warnings = (o.warnings || []).map(w => `<li>${escHtml(w)}</li>`).join('');
+            const currencyNote = o.currency && o.currency.toUpperCase() !== 'USD'
+                ? `<div style="color: var(--danger); font-size: 0.85rem; margin-top: 6px;">This order is in ${escHtml(o.currency)}, not USD. Amounts are shown as printed; convert before adding.</div>` : '';
+
+            document.getElementById('orderImportReview').innerHTML = `
+                <hr style="margin: 1.25rem 0; border-color: var(--border-card);">
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                    <label style="font-size: 0.8rem; color: var(--text-secondary);">Supplier<br><input id="oiSupplier" class="form-input" value="${escHtml(o.supplier_name)}" style="width: 200px;"></label>
+                    <label style="font-size: 0.8rem; color: var(--text-secondary);">Order date<br><input id="oiDate" type="date" class="form-input" value="${escHtml(o.order_date || localToday())}"></label>
+                    <label style="font-size: 0.8rem; color: var(--text-secondary);">Order number<br><input id="oiOrderNum" class="form-input" value="${escHtml(o.order_number || '')}" style="width: 240px; font-family: var(--font-mono);"></label>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary);">${charges}</div>
+                <div style="font-size: 0.85rem; margin: 4px 0 0.75rem;">${totalCheck} Shipping, tax and fees (${money(o.extras_total)}) are split across lines by their share of the merchandise.</div>
+                ${currencyNote}
+                ${warnings ? `<ul style="margin: 0 0 0.75rem 1.2rem; padding: 0; color: var(--warning); font-size: 0.85rem;">${warnings}</ul>` : ''}
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Tracker part</th><th>On the invoice</th><th>Units</th><th>Merch</th><th>Ship/tax/fees</th><th>Total</th><th>Per unit</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px; margin-top: 0.75rem; flex-wrap: wrap;">
+                    <button class="btn btn-primary" id="oiSaveBtn" onclick="saveImportedOrder()"></button>
+                    <button class="btn" onclick="document.getElementById('orderImportReview').innerHTML=''; orderImportData=null;">Cancel</button>
+                    <span style="font-size: 0.8rem; color: var(--text-dim);">Skipped lines keep their share of shipping, so the other lines' costs don't change.</span>
+                </div>`;
+            updateOrderImportSaveLabel();
+        }
+
+        function orderImportPartOptions(selected) {
+            return `<option value="">Skip this line</option><option value="__new__">+ Create new part...</option>` + [...allPartsCache]
+                .sort((a, b) => (a.part_number || '').localeCompare(b.part_number || ''))
+                .map(p => `<option value="${p.id}" ${String(p.id) === String(selected) ? 'selected' : ''}>${escHtml(p.part_number)} ${escHtml(p.part_name || '')}</option>`).join('');
+        }
+
+        function onOrderImportPartChange(i, sel) {
+            if (sel.value === '__new__') {
+                sel.value = sel.dataset.prev || '';
+                createPartFromImportLine(i);
+                return;
+            }
+            sel.dataset.prev = sel.value;
+            updateOrderImportRow(i);
+        }
+
+        // Opens the normal New Part form pre-filled from an invoice line. On save, the
+        // supplier and its part number are recorded as a source (so the next invoice
+        // matches automatically) and the line is pointed at the new part.
+        function createPartFromImportLine(i) {
+            const l = orderImportData.lines[i];
+            const supplier = document.getElementById('oiSupplier').value.trim();
+            const units = parseInt(document.querySelector(`.oi-units[data-i="${i}"]`).value, 10) || l.units;
+            const descBits = [l.description];
+            if (supplier) descBits.push(`Supplier: ${supplier}${l.supplier_part_number ? ' #' + l.supplier_part_number : ''}`);
+            openPartModal(null, {
+                category: l.suggested_category || '',
+                part_name: l.suggested_name || l.description.slice(0, 60),
+                description: descBits.join('\n'),
+                current_stock: 0,
+                min_stock_level: 0
+            }, async newId => {
+                if (supplier) {
+                    const fd = new FormData();
+                    fd.append('action', 'save_source');
+                    fd.append('part_id', newId);
+                    fd.append('supplier_name', supplier);
+                    fd.append('supplier_part_number', l.supplier_part_number || '');
+                    fd.append('cost', units > 0 ? (Number(l.line_total) / units).toFixed(4) : '0');
+                    fd.append('is_preferred', '1');
+                    fd.append('notes', 'Added from Import a Parts Order');
+                    try { await fetch('api.php', { method: 'POST', body: fd }); } catch (e) {}
+                }
+                await loadParts();
+                // Rebuild every line's list so the new part is choosable, keeping current picks
+                document.querySelectorAll('.oi-part').forEach(s => {
+                    const keep = s.dataset.i === String(i) ? String(newId) : s.value;
+                    s.innerHTML = orderImportPartOptions(keep);
+                    s.dataset.prev = keep;
+                });
+                l.matched_part_id = Number(newId);
+                const note = document.querySelector(`.oi-note[data-i="${i}"]`);
+                note.textContent = 'New part created.';
+                note.style.color = 'var(--success)';
+                updateOrderImportSaveLabel();
+            });
+        }
+
+        function updateOrderImportRow(i) {
+            const l = orderImportData.lines[i];
+            const units = parseInt(document.querySelector(`.oi-units[data-i="${i}"]`).value, 10);
+            const v = units > 0 ? l.gross_total / units : 0;
+            document.getElementById('oiUnit' + i).textContent = units > 0 ? '$' + (v < 0.1 ? v.toFixed(4) : v.toFixed(3)) : '';
+            updateOrderImportSaveLabel();
+        }
+
+        function updateOrderImportSaveLabel() {
+            const n = [...document.querySelectorAll('.oi-part')].filter(s => s.value).length;
+            const btn = document.getElementById('oiSaveBtn');
+            btn.textContent = `Add ${n} Pending Order${n === 1 ? '' : 's'}`;
+            btn.disabled = n === 0;
+        }
+
+        async function saveImportedOrder() {
+            const o = orderImportData;
+            const supplier = document.getElementById('oiSupplier').value.trim();
+            const date = document.getElementById('oiDate').value;
+            const orderNum = document.getElementById('oiOrderNum').value.trim();
+            const picks = o.lines.map((l, i) => ({
+                l,
+                partId: document.querySelector(`.oi-part[data-i="${i}"]`).value,
+                units: parseInt(document.querySelector(`.oi-units[data-i="${i}"]`).value, 10)
+            })).filter(p => p.partId);
+
+            const dupes = picks.map(p => p.partId).filter((id, i, a) => a.indexOf(id) !== i);
+            if (dupes.length && !confirm('Two lines are set to the same part. Add both anyway?')) return;
+            if (picks.some(p => !(p.units > 0))) { orderImportStatus('Every added line needs a unit count above zero.', true); return; }
+
+            const btn = document.getElementById('oiSaveBtn');
+            btn.disabled = true;
+            const added = [], failed = [];
+            for (const { l, partId, units } of picks) {
+                const part = allPartsCache.find(p => String(p.id) === String(partId));
+                const label = part ? part.part_number : partId;
+                const note = `${supplier} order${orderNum ? ' ' + orderNum : ''}: ${l.description}`
+                    + `${l.supplier_part_number ? ' (' + l.supplier_part_number + ')' : ''}, ${l.quantity_text}.`
+                    + ` Merch $${Number(l.line_total).toFixed(2)} + prorated ship/tax/fees $${Number(l.extra_share).toFixed(2)}`
+                    + ` (of $${Number(o.extras_total).toFixed(2)} on $${Number(o.merchandise_total).toFixed(2)} order). Imported from pasted invoice.`;
+                const fd = new FormData();
+                fd.append('action', 'checkin_inventory');
+                fd.append('part_id', partId);
+                fd.append('quantity', units);
+                fd.append('gross_total', Number(l.gross_total).toFixed(2));
+                fd.append('supplier_name', supplier);
+                fd.append('purchase_date', date);
+                fd.append('notes', note);
+                fd.append('received', '0');
+                try {
+                    const r = await (await fetch('api.php', { method: 'POST', body: fd })).json();
+                    (r.success ? added : failed).push(label);
+                } catch (e) {
+                    failed.push(label);
+                }
+            }
+
+            if (failed.length) {
+                orderImportStatus(`Added ${added.length}, but these failed: ${failed.join(', ')}. Add them by hand from the part's "+ Record Order" button.`, true);
+            } else {
+                orderImportStatus(`Added ${added.length} pending order${added.length === 1 ? '' : 's'}: ${added.join(', ')}.`);
+                document.getElementById('orderImportText').value = '';
+            }
+            document.getElementById('orderImportReview').innerHTML = '';
+            orderImportData = null;
+            loadParts();
+            loadDashboard();
+        }
+
         let allPartsCache = [];
         let partsProjectPartIds = null; // Set of part IDs for the selected project filter, or null for all
 
@@ -3460,16 +3716,18 @@
         }
 
         // Part Modal Functions (similar pattern to projects)
-        function openPartModal(partId = null) {
+        // prefill: field values for a new part (used by Import a Parts Order).
+        // onSaved(newId): called after a successful save instead of just reloading.
+        function openPartModal(partId = null, prefill = null, onSaved = null) {
             const isEdit = partId !== null;
-            const part = isEdit ? parts.find(p => Number(p.id) === Number(partId)) : {};
+            const part = isEdit ? parts.find(p => Number(p.id) === Number(partId)) : (prefill || {});
 
             const categoryOptions = Object.keys(CATEGORY_PREFIXES).map(cat =>
                 `<option value="${cat}" ${part.category === cat ? 'selected' : ''}>${cat} (${CATEGORY_PREFIXES[cat]}-)</option>`
             ).join('');
 
             const modal = createModal(
-                isEdit ? 'Edit Part' : 'New Part',
+                isEdit ? 'Edit Part' : (prefill ? 'New Part from Order' : 'New Part'),
                 `
                     <form id="partForm">
                         <input type="hidden" id="partId" value="${part.id || ''}">
@@ -3482,15 +3740,15 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label">Part Number ${isEdit ? '' : '<span style="color:var(--text-dim);font-weight:normal;">(auto-filled, editable)</span>'}</label>
-                            <input type="text" id="partNumber" class="form-input" value="${part.part_number || ''}" required>
+                            <input type="text" id="partNumber" class="form-input" value="${escHtml(part.part_number || '')}" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Part Name</label>
-                            <input type="text" id="partName" class="form-input" value="${part.part_name || ''}" required>
+                            <input type="text" id="partName" class="form-input" value="${escHtml(part.part_name || '')}" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Description</label>
-                            <textarea id="partDescription" class="form-textarea">${part.description || ''}</textarea>
+                            <textarea id="partDescription" class="form-textarea">${escHtml(part.description || '')}</textarea>
                         </div>
                         <div class="grid-2">
                             <div class="form-group">
@@ -3523,13 +3781,18 @@
                 formData.append('min_stock_level', document.getElementById('partMinStock').value);
 
                 try {
-                    await fetch('api.php', { method: 'POST', body: formData });
+                    const result = await (await fetch('api.php', { method: 'POST', body: formData })).json();
+                    if (!result.success) { alert(result.error || 'Error saving part'); return; }
                     modal.remove();
-                    loadParts();
+                    if (onSaved) await onSaved(result.id);
+                    else loadParts();
                 } catch (error) {
                     alert('Error saving part');
                 }
             });
+
+            // A prefilled category should get its next part number, same as picking it by hand
+            if (!isEdit && part.category) autoFillPartNumber();
         }
 
         function renderLeadTimeSection(checkins) {
