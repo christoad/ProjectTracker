@@ -237,6 +237,7 @@
             flex-wrap: wrap;
         }
         #partsProjectFilter { width: 200px; }
+        #partsCategoryFilter { width: 180px; }
         #partsSearchInput   { width: 220px; }
 
         /* Order number and date should never wrap */
@@ -669,6 +670,7 @@
                 width: 100%;
             }
             #partsProjectFilter,
+            #partsCategoryFilter,
             #partsSearchInput {
                 flex: 1;
                 min-width: 120px;
@@ -987,11 +989,7 @@
                         </div>
                         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;">
                             <span style="font-size:0.82rem;color:var(--text-secondary);">Order to:</span>
-                            <button class="btn btn-small" data-bt-preset="25" onclick="setBottleneckTarget(25)">25 kits</button>
-                            <button class="btn btn-small" data-bt-preset="50" onclick="setBottleneckTarget(50)" style="background:var(--accent-primary);color:white;border-color:var(--accent-primary);">50 kits</button>
-                            <button class="btn btn-small" data-bt-preset="100" onclick="setBottleneckTarget(100)">100 kits</button>
-                            <button class="btn btn-small" data-bt-preset="250" onclick="setBottleneckTarget(250)">250 kits</button>
-                            <button class="btn btn-small" data-bt-preset="max" onclick="setBottleneckTarget('max')">Match Max</button>
+                            <select id="bottleneckTargetSelect" class="form-input" style="width:auto;padding:4px 8px;font-size:0.85rem;" onchange="setBottleneckTarget(parseInt(this.value))"><option value="50" selected>50 kits</option><option value="100">100 kits</option><option value="150">150 kits</option><option value="200">200 kits</option><option value="250">250 kits</option><option value="300">300 kits</option><option value="350">350 kits</option><option value="400">400 kits</option><option value="450">450 kits</option><option value="500">500 kits</option></select>
                         </div>
                     </div>
                     <div id="bottleneckInsights"></div>
@@ -1046,6 +1044,9 @@
                             <select id="partsProjectFilter" class="form-input" onchange="onPartsProjectFilterChange()">
                                 <option value="">All Projects</option>
                                 <option value="__unassigned__">Unassigned to a project</option>
+                            </select>
+                            <select id="partsCategoryFilter" class="form-input" onchange="renderPartsTable(document.getElementById('partsSearchInput')?.value || '')">
+                                <option value="">All Categories</option>
                             </select>
                             <input type="text" id="partsSearchInput" class="form-input" placeholder="Search parts..." oninput="filterPartsTable(this.value)">
                             <button class="btn btn-primary" onclick="openPartModal()">+ New Part</button>
@@ -1569,12 +1570,6 @@
 
         function setBottleneckTarget(val) {
             bottleneckTarget = val;
-            document.querySelectorAll('[data-bt-preset]').forEach(btn => {
-                const active = btn.dataset.btPreset == String(val);
-                btn.style.background = active ? 'var(--accent-primary)' : '';
-                btn.style.color = active ? 'white' : '';
-                btn.style.borderColor = active ? 'var(--accent-primary)' : '';
-            });
             renderBottleneckInsights();
         }
 
@@ -1608,7 +1603,7 @@
             // (accounting for stock already on the way from a supplier)
             if (!bottleneckInitialized) {
                 insights.forEach(proj => {
-                    const t = bottleneckTarget === 'max' ? proj.max_buildable : bottleneckTarget;
+                    const t = bottleneckTarget;
                     if (proj.all_fixed_parts.some(p => bottleneckEffectiveBuildable(p) < t)) {
                         bottleneckExpandedProjects.add(proj.project_id);
                     }
@@ -1617,7 +1612,7 @@
             }
 
             const html = insights.map(proj => {
-                const effectiveTarget = bottleneckTarget === 'max' ? proj.max_buildable : bottleneckTarget;
+                const effectiveTarget = bottleneckTarget;
                 const b = proj.current_buildable;
                 const parts = proj.all_fixed_parts; // sorted ascending by buildable
                 const barCeiling = Math.max(proj.max_buildable, effectiveTarget, 1);
@@ -1684,7 +1679,7 @@
                     if (p.unit_cost > 0) sum += Math.max(0, effectiveTarget * p.quantity_required - p.current_stock - (p.pending_qty || 0)) * p.unit_cost;
                     return sum;
                 }, 0);
-                const targetLabel = bottleneckTarget === 'max' ? 'max' : `${effectiveTarget} kits`;
+                const targetLabel = `${effectiveTarget} kits`;
                 const costSummary = totalCost > 0 && neededParts.length > 0
                     ? `<span style="font-size:0.82rem;color:var(--text-secondary);margin-left:8px;">~$${totalCost.toFixed(2)} to stock to ${targetLabel}</span>` : '';
                 const partsNeededLabel = neededParts.length > 0
@@ -2121,6 +2116,8 @@
                     });
                 }
 
+                populatePartsCategoryFilter();
+
                 const currentSearch = document.getElementById('partsSearchInput')?.value || '';
                 renderPartsTable(currentSearch);
             } catch (error) {
@@ -2144,6 +2141,21 @@
             renderPartsTable(document.getElementById('partsSearchInput')?.value || '');
         }
 
+        // Rebuilt from the parts themselves on every load so new categories appear
+        // automatically; keeps the current selection if that category still exists.
+        function populatePartsCategoryFilter() {
+            const sel = document.getElementById('partsCategoryFilter');
+            if (!sel) return;
+            const current = sel.value;
+            const cats = [...new Set(allPartsCache.map(p => (p.category || '').trim()).filter(Boolean))]
+                .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+            const hasBlank = allPartsCache.some(p => !(p.category || '').trim());
+            sel.innerHTML = '<option value="">All Categories</option>'
+                + cats.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('')
+                + (hasBlank ? '<option value="__none__">No category</option>' : '');
+            sel.value = [...sel.options].some(o => o.value === current) ? current : '';
+        }
+
         function filterPartsTable(query) {
             renderPartsTable(query);
         }
@@ -2153,6 +2165,13 @@
 
             if (partsProjectPartIds !== null) {
                 filtered = filtered.filter(p => partsProjectPartIds.has(parseInt(p.id)));
+            }
+
+            const category = document.getElementById('partsCategoryFilter')?.value || '';
+            if (category === '__none__') {
+                filtered = filtered.filter(p => !(p.category || '').trim());
+            } else if (category) {
+                filtered = filtered.filter(p => (p.category || '').trim() === category);
             }
 
             if (searchQuery && searchQuery.trim()) {
@@ -3656,6 +3675,86 @@
             `;
         }
 
+        // Unit cost per order over time. unit_cost on a checkin is gross total / qty,
+        // so it already includes whatever shipping/tax was folded into that order.
+        function renderUnitCostSection(checkins) {
+            const DAY = 86400000;
+            const pts = (checkins || [])
+                .filter(c => c.purchase_date && parseFloat(c.unit_cost) > 0)
+                .map(c => ({
+                    date: new Date(c.purchase_date + 'T00:00:00'),
+                    purchaseDate: c.purchase_date,
+                    cost: parseFloat(c.unit_cost),
+                    qty: parseInt(c.quantity, 10) || 0,
+                    supplier: c.supplier_name || '',
+                    pending: c.received == 0
+                }))
+                .sort((a, b) => a.date - b.date);
+            if (pts.length === 0) return '';
+
+            const money = v => '$' + (v > 0 && v < 0.1 ? v.toFixed(4) : v.toFixed(2));
+            const first = pts[0], last = pts[pts.length - 1];
+            const totalQty = pts.reduce((s, p) => s + p.qty, 0);
+            const wAvg = totalQty > 0 ? pts.reduce((s, p) => s + p.cost * p.qty, 0) / totalQty : last.cost;
+
+            let summary = `Latest <strong>${money(last.cost)}</strong>/unit (${escHtml(last.purchaseDate)}), weighted average ${money(wAvg)} across ${pts.length} order${pts.length === 1 ? '' : 's'}.`;
+            // Compare against the previous order rather than the first: early rows are often
+            // homebrew prototypes at a few cents, which make a first-to-last % meaningless.
+            if (pts.length >= 2) {
+                const prev = pts[pts.length - 2];
+                const pct = (last.cost - prev.cost) / prev.cost * 100;
+                const dir = Math.abs(pct) < 0.5 ? 'unchanged' : (pct > 0 ? `<strong style="color:var(--danger);">up ${pct.toFixed(1)}%</strong>` : `<strong style="color:var(--success);">down ${Math.abs(pct).toFixed(1)}%</strong>`);
+                summary += ` That's ${dir} from the previous order (${money(prev.cost)} on ${escHtml(prev.purchaseDate)}).`;
+            }
+
+            if (pts.length < 2) {
+                return `
+                    <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
+                    <h4>Cost Per Unit</h4>
+                    <p style="margin: 4px 0 10px 0; font-size: 0.9em; color: var(--text-secondary);">${summary}</p>
+                    <p style="color: var(--text-dim); font-size: 0.85em;">Log a second order to see the cost trend.</p>
+                `;
+            }
+
+            const W = 640, H = 190, padL = 58, padR = 16, padT = 18, padB = 26;
+            const plotW = W - padL - padR, plotH = H - padT - padB;
+            const t0 = first.date.getTime(), span = Math.max(last.date.getTime() - t0, DAY);
+            const X = p => padL + ((p.date.getTime() - t0) / span) * plotW;
+            const costs = pts.map(p => p.cost);
+            let lo = Math.min(...costs), hi = Math.max(...costs);
+            const pad = (hi - lo) * 0.15 || hi * 0.1 || 1;
+            lo = Math.max(0, lo - pad); hi = hi + pad;
+            const Y = v => padT + plotH - ((v - lo) / (hi - lo)) * plotH;
+
+            const grid = [lo, (lo + hi) / 2, hi].map(v => `
+                <line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W - padR}" y2="${Y(v).toFixed(1)}" stroke="var(--border-card)" stroke-width="1"/>
+                <text x="${padL - 6}" y="${(Y(v) + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-dim)" font-family="var(--font-mono)">${money(v)}</text>`).join('');
+            const coords = pts.map(p => ({ x: X(p), y: Y(p.cost), p }));
+            const path = coords.map((c, i) => (i ? 'L' : 'M') + c.x.toFixed(1) + ',' + c.y.toFixed(1)).join(' ');
+            const avgY = Y(wAvg);
+            const tip = p => `<title>${escHtml(p.purchaseDate)}: ${money(p.cost)}/unit, qty ${p.qty}${p.supplier ? ' (' + escHtml(p.supplier) + ')' : ''}${p.pending ? ', not received yet' : ''}</title>`;
+            const dots = coords.map(c => c.p.pending
+                ? `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="4.5" fill="var(--bg-card)" stroke="var(--accent-primary)" stroke-width="2">${tip(c.p)}</circle>`
+                : `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="4.5" fill="var(--accent-primary)" stroke="var(--bg-card)" stroke-width="1.5">${tip(c.p)}</circle>`).join('');
+            const hasPending = pts.some(p => p.pending);
+
+            return `
+                <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
+                <h4>Cost Per Unit</h4>
+                <p style="margin: 4px 0 10px 0; font-size: 0.9em; color: var(--text-secondary);">${summary}</p>
+                <svg viewBox="0 0 ${W} ${H}" style="width:100%; max-width:${W}px; display:block;">
+                    ${grid}
+                    <line x1="${padL}" y1="${avgY.toFixed(1)}" x2="${W - padR}" y2="${avgY.toFixed(1)}" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="4,3"/>
+                    <text x="${padL + 4}" y="${(avgY - 4).toFixed(1)}" font-size="10" fill="var(--warning)" font-weight="600">avg ${money(wAvg)}</text>
+                    <path d="${path}" fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    ${dots}
+                    <text x="${padL}" y="${H - 6}" font-size="10" fill="var(--text-dim)">${escHtml(first.purchaseDate)}</text>
+                    <text x="${W - padR}" y="${H - 6}" text-anchor="end" font-size="10" fill="var(--text-dim)">${escHtml(last.purchaseDate)}</text>
+                </svg>
+                <div style="font-size:0.8em; color:var(--text-dim);">Cost per unit includes any shipping and fees entered with each order.${hasPending ? ' Hollow dots are orders not received yet.' : ''} Hover a dot for details.</div>
+            `;
+        }
+
         async function viewPart(id) {
             try {
                 const response = await fetch(`api.php?action=get_part&id=${id}`);
@@ -3762,6 +3861,7 @@
                             </table>
                         ` : '<p style="color: var(--text-dim); text-align: center; padding: 2rem;">No orders yet. Click "+ Record Order" to log your first parts order.</p>'}
                         ${renderLeadTimeSection(part.checkins)}
+                        ${renderUnitCostSection(part.checkins)}
                         <hr style="margin: 1.5rem 0; border-color: var(--border-color);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                             <h4>Stock Adjustments</h4>
