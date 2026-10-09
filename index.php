@@ -5395,6 +5395,24 @@
             }
         }
 
+        let bizExpensesCache = [];
+
+        // Open the Add Expense form pre-filled from an existing expense, dated today
+        function duplicateBizExpense(id) {
+            const e = bizExpensesCache.find(x => x.id == id);
+            if (!e) return;
+            document.getElementById('bizExpDesc').value = e.description;
+            document.getElementById('bizExpCost').value = parseFloat(e.cost).toFixed(2);
+            document.getElementById('bizExpCategory').value = e.category;
+            document.getElementById('bizExpDate').value = new Date().toISOString().split('T')[0];
+            document.getElementById('bizExpNotes').value = e.notes || '';
+            const form = document.getElementById('addBizExpenseForm');
+            form.style.display = 'block';
+            document.querySelector('[onclick*="addBizExpenseForm"]').style.display = 'none';
+            form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            document.getElementById('bizExpDesc').focus();
+        }
+
         async function loadBizExpenses() {
             const container = document.getElementById('bizExpenseList');
             if (!container) return;
@@ -5407,6 +5425,7 @@
                     return;
                 }
 
+                bizExpensesCache = expenses;
                 const total = expenses.reduce((sum, e) => sum + parseFloat(e.cost), 0);
                 const rows = expenses.map(e => `
                     <tr>
@@ -5415,7 +5434,7 @@
                         <td><span class="badge badge-info">${e.category}</span></td>
                         <td style="font-family:var(--font-mono);text-align:right;">$${parseFloat(e.cost).toFixed(2)}</td>
                         <td style="color:var(--text-dim);font-size:0.85em;">${e.notes || ''}</td>
-                        <td><button class="btn btn-small btn-danger" onclick="deleteBizExpense(${e.id})">Delete</button></td>
+                        <td style="white-space:nowrap;"><button class="btn btn-small" onclick="duplicateBizExpense(${e.id})">Duplicate</button> <button class="btn btn-small btn-danger" onclick="deleteBizExpense(${e.id})">Delete</button></td>
                     </tr>`).join('');
 
                 container.innerHTML = `
