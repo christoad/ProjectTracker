@@ -1429,7 +1429,7 @@
         let bottleneckInitialized = false;
 
         // BOM view state (project modal)
-        let bomSortState = { column: 'part_number', direction: 'asc' };
+        let bomSortState = { column: null, direction: 'asc' };  // null = saved BOM order
         let bomSearchQuery = '';
         let bomDragMode = false;
         let bomDragSrcIdx = null;
@@ -2827,7 +2827,7 @@
                 // so the "Add/Edit Variable Part" dropdowns are ready when opened.
                 ensureVariationOptionsLoaded();
                 // Reset BOM state each time a project is opened
-                bomSortState = { column: 'part_number', direction: 'asc' };
+                bomSortState = { column: null, direction: 'asc' };  // null = saved BOM order
                 bomSearchQuery = '';
                 bomDragMode = false;
 
@@ -3014,7 +3014,9 @@
                         (p.category || '').toLowerCase().includes(q)
                     );
                 }
-                filtered = sortData(filtered, bomSortState.column, bomSortState.direction);
+                if (bomSortState.column) {
+                    filtered = sortData(filtered, bomSortState.column, bomSortState.direction);
+                }
             }
 
             const arrow = (col) => (!bomDragMode && bomSortState.column === col) ? (bomSortState.direction === 'asc' ? ' &#9650;' : ' &#9660;') : '';
@@ -3109,8 +3111,14 @@
 
         function sortBOM(column) {
             if (bomDragMode) return;
+            // Click cycle: ascending, descending, then back to the saved BOM order
             if (bomSortState.column === column) {
-                bomSortState.direction = bomSortState.direction === 'asc' ? 'desc' : 'asc';
+                if (bomSortState.direction === 'asc') {
+                    bomSortState.direction = 'desc';
+                } else {
+                    bomSortState.column = null;
+                    bomSortState.direction = 'asc';
+                }
             } else {
                 bomSortState.column = column;
                 bomSortState.direction = 'asc';
@@ -3121,8 +3129,10 @@
         function toggleBOMDragMode() {
             bomDragMode = !bomDragMode;
             if (bomDragMode) {
-                // Clear search so all parts are visible for reordering
+                // Clear search and column sort so all parts show in saved order,
+                // and the view after reordering matches what was just arranged
                 bomSearchQuery = '';
+                bomSortState = { column: null, direction: 'asc' };
                 const searchInput = document.getElementById('bomSearchInput');
                 if (searchInput) searchInput.value = '';
             }
