@@ -150,6 +150,115 @@ function wc_fetch_product_stock(int $wc_product_id): ?int {
     return isset($data['stock_quantity']) ? (int) $data['stock_quantity'] : null;
 }
 
+/**
+ * A variable product's variation setup as defined in WooCommerce: its variation
+ * attributes with their options, plus every variation's ID and attribute values.
+ * Used by the BOM "variable part" pickers so attribute names/values exactly match
+ * WooCommerce instead of being retyped by hand. Returns null if unreachable.
+ */
+function wc_fetch_variation_setup(int $wc_product_id): ?array {
+    $cfg = wc_get_config();
+    if (!$cfg) return null;
+    $base = rtrim($cfg['site_url'], '/') . '/wp-json/wc/v3/products/' . $wc_product_id;
+    $get = function ($url) use ($cfg) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_USERPWD        => $cfg['username'] . ':' . $cfg['app_password'],
+            CURLOPT_TIMEOUT        => 15,
+        ]);
+        $response  = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        return $http_code === 200 ? json_decode($response, true) : null;
+    };
+
+    $product = $get($base);
+    if (!is_array($product)) return null;
+
+    $attributes = [];
+    foreach ($product['attributes'] ?? [] as $a) {
+        if (!empty($a['variation'])) $attributes[$a['name']] = array_values($a['options'] ?? []);
+    }
+
+    $variations = [];
+    if ($attributes) {
+        for ($page = 1; $page <= 5; $page++) {
+            $batch = $get($base . '/variations?per_page=100&page=' . $page);
+            if (!is_array($batch) || !$batch) break;
+            foreach ($batch as $v) {
+                $attrs = [];
+                foreach ($v['attributes'] ?? [] as $va) $attrs[$va['name']] = $va['option'];
+                $variations[] = ['id' => (int) $v['id'], 'attributes' => $attrs];
+            }
+            if (count($batch) < 100) break;
+        }
+    }
+
+    return [
+        'product_name' => $product['name'] ?? '',
+        'type'         => $product['type'] ?? '',
+        'attributes'   => $attributes,
+        'variations'   => $variations,
+    ];
+}
+
+/**
+ * Fill in missing project_variation_mappings by matching each BOM variation combo
+ * to the one WooCommerce variation with those same attribute values. Never
+ * overwrites a mapping that's already set, and skips combos that match zero or
+ * several WC variations (e.g. the BOM only uses one of two WC attributes).
+ */
+function wc_autolink_variation_mappings($db, int $project_id): array {
+    $stmt = $db->prepare("SELECT woocommerce_product_id FROM projects WHERE id = ?");
+    $stmt->execute([$project_id]);
+    $wc_product_id = (int) $stmt->fetchColumn();
+    if (!$wc_product_id) return ['linked' => 0, 'reason' => 'not linked to WooCommerce'];
+
+    $stmt = $db->prepare("
+        SELECT DISTINCT variation_attribute, variation_value FROM project_parts
+        WHERE project_id = ? AND variation_attribute != ''
+    ");
+    $stmt->execute([$project_id]);
+    $attrs = [];
+    foreach ($stmt->fetchAll() as $r) $attrs[$r['variation_attribute']][] = $r['variation_value'];
+    if (!$attrs) return ['linked' => 0];
+
+    $setup = wc_fetch_variation_setup($wc_product_id);
+    if (!$setup) return ['linked' => 0, 'reason' => 'WooCommerce unreachable'];
+
+    $combos = [[]];
+    foreach ($attrs as $attr => $values) {
+        $next = [];
+        foreach ($combos as $c) foreach ($values as $v) { $c2 = $c; $c2[$attr] = $v; $next[] = $c2; }
+        $combos = $next;
+    }
+
+    $existing = $db->prepare("SELECT wc_variation_id FROM project_variation_mappings WHERE project_id = ? AND combo_key = ?");
+    $upsert = $db->prepare("
+        INSERT INTO project_variation_mappings (project_id, combo_key, wc_variation_id)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE wc_variation_id = VALUES(wc_variation_id), updated_at = NOW()
+    ");
+    $linked = 0;
+    foreach ($combos as $combo) {
+        $key = wc_build_combo_key($combo);
+        $existing->execute([$project_id, $key]);
+        if ((int) $existing->fetchColumn() > 0) continue; // never overwrite a set mapping
+
+        $matches = array_filter($setup['variations'], function ($v) use ($combo) {
+            foreach ($combo as $a => $val) {
+                if (strcasecmp($v['attributes'][$a] ?? '', $val) !== 0) return false;
+            }
+            return true;
+        });
+        if (count($matches) !== 1) continue;
+        $upsert->execute([$project_id, $key, reset($matches)['id']]);
+        $linked++;
+    }
+    return ['linked' => $linked];
+}
+
 /** Fetch current regular_price for a WooCommerce product (parent/simple product). */
 function wc_fetch_product_price(int $wc_product_id): ?float {
     $cfg = wc_get_config();

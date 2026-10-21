@@ -618,6 +618,96 @@
             color: var(--accent-primary);
         }
 
+        /* ── Reorder Forecast (dashboard) ── */
+        .rf-controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+        .rf-controls label { font-size:0.78rem; color:var(--text-secondary); display:flex; align-items:center; gap:5px; }
+        .rf-controls select { width:auto; padding:4px 8px; font-size:0.82rem; }
+        .rf-seg { display:inline-flex; border:1px solid var(--border-card); border-radius:var(--radius-md); overflow:hidden; }
+        .rf-seg button { border:0; background:var(--bg-card); padding:5px 11px; font:500 0.8rem var(--font-body); color:var(--text-secondary); cursor:pointer; }
+        .rf-seg button.active { background:var(--accent-primary); color:#fff; }
+        .rf-hero { display:flex; align-items:center; gap:14px; padding:14px 20px; background:linear-gradient(135deg, rgba(26,86,219,0.07), rgba(6,128,198,0.03)); border-bottom:1px solid var(--border-card); flex-wrap:wrap; }
+        .rf-hero-icon { width:38px; height:38px; border-radius:50%; display:grid; place-items:center; font-size:18px; flex-shrink:0; color:#fff; font-weight:700; }
+        .rf-hero-text { font-size:0.95rem; color:var(--text-primary); line-height:1.4; flex:1; min-width:220px; }
+        .rf-hero-text strong { font-weight:700; }
+        .rf-hero-sub { font-size:0.8rem; color:var(--text-secondary); }
+        .rf-tiles { display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; padding:14px 20px; border-bottom:1px solid var(--border-card); }
+        .rf-tile { position:relative; text-align:left; background:var(--bg-card); border:1px solid var(--border-card); border-radius:var(--radius-card); padding:10px 12px 9px 14px; cursor:pointer; transition:transform .12s, box-shadow .12s, border-color .12s; font-family:var(--font-body); }
+        .rf-tile:hover { transform:translateY(-1px); box-shadow:0 4px 12px rgba(10,30,100,0.08); }
+        .rf-tile.active { border-color:var(--tile-color); box-shadow:0 0 0 2px var(--tile-ring); }
+        .rf-tile::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:var(--radius-card) 0 0 var(--radius-card); background:var(--tile-color); }
+        .rf-tile-num { font:700 26px/1.1 var(--font-mono); color:var(--text-primary); }
+        .rf-tile-label { font-size:0.72rem; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-top:2px; }
+        .rf-tile-sub { font-size:0.74rem; color:var(--text-dim); margin-top:2px; font-family:var(--font-mono); }
+        .rf-axis, .rf-row { display:grid; grid-template-columns:minmax(230px, 280px) 1fr 180px; gap:18px; align-items:center; padding:0 20px; }
+        .rf-axis { padding-top:10px; padding-bottom:2px; font-size:0.7rem; color:var(--text-dim); font-family:var(--font-mono); }
+        .rf-axis-track { position:relative; height:16px; }
+        .rf-axis-track span { position:absolute; transform:translateX(-50%); white-space:nowrap; }
+        .rf-axis-track span.first { transform:none; font-weight:600; color:var(--text-primary); }
+        .rf-row { padding-top:11px; padding-bottom:11px; border-top:1px solid var(--bg-light); transition:background .12s; }
+        .rf-row:hover { background:var(--bg-card-alt-row); }
+        .rf-name { font-weight:600; color:var(--text-primary); cursor:pointer; font-size:0.9rem; line-height:1.25; }
+        .rf-name:hover { color:var(--accent-primary); text-decoration:underline; }
+        .rf-meta { font-size:0.74rem; color:var(--text-secondary); margin-top:3px; display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; }
+        .rf-pn { font-family:var(--font-mono); color:var(--text-dim); }
+        .rf-pill { display:inline-block; font-size:0.64rem; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; padding:2px 7px; border-radius:10px; color:#fff; background:var(--pill); vertical-align:1px; margin-right:6px; white-space:nowrap; }
+        .rf-burn { display:flex; align-items:center; gap:6px; margin-top:5px; font-size:0.74rem; color:var(--text-secondary); font-family:var(--font-mono); flex-wrap:wrap; }
+        .rf-trend-up { color:var(--danger); font-weight:600; }
+        .rf-trend-down { color:var(--success); font-weight:600; }
+        .rf-track { position:relative; height:38px; }
+        .rf-grid { position:absolute; top:4px; bottom:4px; width:1px; background:var(--bg-light); }
+        .rf-today { position:absolute; top:0; bottom:0; left:0; width:2px; background:var(--text-primary); opacity:0.5; border-radius:1px; }
+        .rf-bar { position:absolute; top:13px; height:12px; }
+        .rf-bar.safe { background:linear-gradient(90deg, var(--accent-primary), var(--accent-secondary)); border-radius:6px 0 0 6px; }
+        .rf-bar.window { background:repeating-linear-gradient(-45deg, var(--warning) 0 5px, #fbbf24 5px 10px); }
+        .rf-bar.late { background:repeating-linear-gradient(-45deg, var(--danger) 0 5px, #f87171 5px 10px); border-radius:6px 0 0 6px; }
+        .rf-bar.solo { border-radius:6px; }
+        .rf-bar.gap { top:17px; height:4px; background:repeating-linear-gradient(90deg, var(--danger) 0 4px, transparent 4px 7px); }
+        .rf-bar.fade { -webkit-mask-image:linear-gradient(90deg, #000 80%, transparent); mask-image:linear-gradient(90deg, #000 80%, transparent); }
+        .rf-out { position:absolute; top:11px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:var(--danger); border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.25); }
+        .rf-flag { position:absolute; top:3px; bottom:3px; width:2px; margin-left:-1px; background:var(--text-primary); }
+        .rf-flag::after { content:''; position:absolute; top:0; left:2px; border-left:8px solid var(--text-primary); border-top:4px solid transparent; border-bottom:4px solid transparent; }
+        .rf-arrive { position:absolute; top:3px; bottom:3px; width:0; margin-left:-1px; border-left:2px dashed var(--success); }
+        .rf-inbound { position:absolute; top:-1px; transform:translateX(-50%); font:600 9.5px/13px var(--font-mono); color:#fff; background:var(--info); padding:0 4px; border-radius:3px; white-space:nowrap; box-shadow:0 1px 2px rgba(0,0,0,0.15); z-index:1; }
+        .rf-inbound.overdue { background:var(--danger); }
+        .rf-endlabel { position:absolute; bottom:-3px; font:500 9.5px var(--font-mono); color:var(--text-secondary); white-space:nowrap; transform:translateX(-50%); }
+        .rf-action { text-align:right; }
+        .rf-when { font-weight:700; font-size:0.9rem; color:var(--text-primary); }
+        .rf-when-sub { font-size:0.74rem; color:var(--text-secondary); font-family:var(--font-mono); }
+        .rf-buy { margin-top:4px; font-family:var(--font-mono); font-size:0.8rem; color:var(--text-primary); }
+        .rf-buy b { color:var(--accent-primary); }
+        .rf-empty { padding:28px 20px; text-align:center; color:var(--text-secondary); }
+        .rf-more { display:block; width:100%; padding:10px; border:0; border-top:1px solid var(--bg-light); background:transparent; color:var(--accent-primary); font:600 0.82rem var(--font-body); cursor:pointer; }
+        .rf-more:hover { background:var(--bg-card-alt-row); }
+        .rf-spikes { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 20px; border-bottom:1px solid var(--border-card); background:rgba(139,92,246,0.04); }
+        .rf-spikes-label { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#8b5cf6; margin-right:4px; }
+        .rf-spike-chip { border:1px solid rgba(139,92,246,0.35); background:var(--bg-card); border-radius:14px; padding:4px 11px; font:0.8rem var(--font-body); color:var(--text-primary); cursor:pointer; }
+        .rf-spike-chip:hover { border-color:#8b5cf6; }
+        .rf-spike-add { border:1px dashed #8b5cf6; background:transparent; color:#8b5cf6; border-radius:14px; padding:4px 11px; font:600 0.8rem var(--font-body); cursor:pointer; }
+        .rf-spike-add:hover { background:rgba(139,92,246,0.08); }
+        .rf-legend { display:flex; flex-wrap:wrap; gap:6px 16px; padding:10px 20px; font-size:0.74rem; color:var(--text-secondary); border-top:1px solid var(--border-card); background:var(--bg-card-header); border-radius:0 0 var(--radius-card) var(--radius-card); align-items:center; }
+        .rf-legend .sw { display:inline-block; width:18px; height:8px; border-radius:4px; vertical-align:middle; margin-right:5px; }
+        .rf-legend details { width:100%; }
+        .rf-legend summary { cursor:pointer; color:var(--accent-primary); font-weight:600; }
+        .rf-legend ul { margin:6px 0 2px 18px; line-height:1.55; }
+        .rf-suppliers { display:grid; grid-template-columns:repeat(auto-fill, minmax(380px, 1fr)); gap:14px; padding:16px 20px; }
+        .rf-sup { border:1px solid var(--border-card); border-radius:var(--radius-card); background:var(--bg-card); overflow:hidden; }
+        .rf-sup-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:11px 14px; background:var(--bg-card-header); border-bottom:1px solid var(--border-card); }
+        .rf-sup-name { font-weight:700; font-size:0.95rem; }
+        .rf-sup-sub { font-size:0.75rem; color:var(--text-secondary); margin-top:2px; }
+        .rf-sup-total { font:700 1.05rem var(--font-mono); color:var(--accent-primary); text-align:right; }
+        .rf-sup table { width:100%; border-collapse:collapse; font-size:0.8rem; }
+        .rf-sup td { padding:6px 14px; border-top:1px solid var(--bg-light); vertical-align:top; }
+        .rf-sup td.num { text-align:right; font-family:var(--font-mono); white-space:nowrap; }
+        .rf-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--pill); }
+        @media (max-width: 900px) {
+            .rf-tiles { grid-template-columns:repeat(2, 1fr); }
+            .rf-axis { display:none; }
+            .rf-row { grid-template-columns:1fr; gap:8px; padding-left:14px; padding-right:14px; }
+            .rf-action { text-align:left; display:flex; gap:14px; align-items:baseline; flex-wrap:wrap; }
+            .rf-suppliers { grid-template-columns:1fr; padding:12px; }
+            .rf-hero, .rf-tiles { padding-left:14px; padding-right:14px; }
+        }
+
         .grid-2 {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -957,28 +1047,54 @@
                     </div>
                     <div class="stat-card stat-low">
                         <div class="stat-value" id="statLowStock">0</div>
-                        <div class="stat-label">Low Stock Alerts</div>
+                        <div class="stat-label">Parts to Reorder Now</div>
                     </div>
                     <div class="stat-card stat-orders">
                         <div class="stat-value" id="statOrders">0</div>
-                        <div class="stat-label">Pending Orders</div>
+                        <div class="stat-label">Pending Customer Orders</div>
                     </div>
                 </div>
 
-                <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">
-                            <h2 class="card-title">Low Stock Parts</h2>
+                <div class="card" id="reorderForecastCard">
+                    <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+                        <div>
+                            <h2 class="card-title">Reorder Forecast</h2>
+                            <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400;">When each part runs out at your current sales pace, and when to order so it arrives in time.</span>
                         </div>
-                        <div id="lowStockList" class="card-body"></div>
+                        <div class="rf-controls">
+                            <label title="How far back to look when measuring how fast each part is being used">Demand from
+                                <select id="rfWindow" class="form-input" onchange="setReorderSetting('window', +this.value)"><option value="30">last 30 days</option><option value="60">last 60 days</option><option value="90">last 90 days</option><option value="180">last 180 days</option></select>
+                            </label>
+                            <label title="Extra days of stock to keep on hand in case a shipment runs late or sales spike">Buffer
+                                <select id="rfSafety" class="form-input" onchange="setReorderSetting('safety', +this.value)"><option value="0">none</option><option value="7">7 days</option><option value="14">14 days</option><option value="21">21 days</option><option value="30">30 days</option></select>
+                            </label>
+                            <label title="How many days of sales each reorder should cover">Order for
+                                <select id="rfCover" class="form-input" onchange="setReorderSetting('cover', +this.value)"><option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option><option value="120">120 days</option><option value="180">180 days</option></select>
+                            </label>
+                            <div class="rf-seg" id="rfViewToggle">
+                                <button data-view="timeline" onclick="setReorderSetting('view','timeline')">Timeline</button>
+                                <button data-view="supplier" onclick="setReorderSetting('view','supplier')">Shopping List</button>
+                            </div>
+                        </div>
                     </div>
+                    <div id="reorderForecast"><div class="rf-empty">Loading forecast...</div></div>
+                </div>
 
-                    <div class="card">
-                        <div class="card-header">
-                            <h2 class="card-title">Recent Orders</h2>
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">Parts On Order</h2>
+                            <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:400;">Supplier orders placed but not received yet. Expected dates use each part's past delivery times.</span>
                         </div>
-                        <div id="recentOrdersList" class="card-body"></div>
                     </div>
+                    <div id="partsOnOrderList" class="card-body"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Recent Orders</h2>
+                    </div>
+                    <div id="recentOrdersList" class="card-body"></div>
                 </div>
 
                 <div class="card" style="margin-top:1.5rem;">
@@ -1164,6 +1280,7 @@
                             <span>Unrealized Revenue (Potential):</span>
                             <strong id="metricUnrealizedRevenue">$0</strong>
                         </div>
+                        <div id="metricUnrealizedBreakdown" style="font-size:12px;padding-top:6px;"></div>
                         </div>
                     </div>
 
@@ -1549,26 +1666,14 @@
         }
 
         async function loadDashboard(opts = {}) {
+            loadReorderForecast();
             try {
                 const response = await fetch('api.php?action=get_dashboard');
                 const data = await response.json();
                 
                 document.getElementById('statProjects').textContent = data.total_projects || 0;
                 document.getElementById('statParts').textContent = data.total_parts || 0;
-                document.getElementById('statLowStock').textContent = data.low_stock_count || 0;
                 document.getElementById('statOrders').textContent = data.pending_orders || 0;
-
-                // Low stock parts
-                const lowStockHtml = data.low_stock_parts && data.low_stock_parts.length > 0
-                    ? data.low_stock_parts.map(p => `
-                        <div style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">
-                            <strong>${p.part_name}</strong> (${p.part_number})<br>
-                            <span class="stock-low">Stock: ${p.current_stock} / Min: ${p.min_stock_level}</span>
-                        </div>
-                    `).join('')
-                    : '<div style="padding: 1rem; color: var(--text-dim);">All parts adequately stocked</div>';
-                document.getElementById('lowStockList').innerHTML = lowStockHtml;
-
                 // Recent orders
                 const ordersHtml = data.recent_orders && data.recent_orders.length > 0
                     ? data.recent_orders.map(o => `
@@ -1581,6 +1686,9 @@
                     : '<div style="padding: 1rem; color: var(--text-dim);">No recent orders</div>';
                 document.getElementById('recentOrdersList').innerHTML = ordersHtml;
 
+                partsOnOrderData = data.parts_on_order || [];
+                renderPartsOnOrder();
+
                 // Bottleneck insights — store data and render with current target
                 bottleneckInsightsData = data.bottleneck_insights || [];
                 if (!opts.keepExpanded) {
@@ -1591,6 +1699,571 @@
             } catch (error) {
                 console.error('Error loading dashboard:', error);
             }
+        }
+
+        // ── Reorder Forecast ─────────────────────────────────────────────────────
+        // Projects each part's stockout from its recent sales pace (BOM demand per day),
+        // inbound pending orders, and planned demand spikes, then works back by the
+        // part's measured delivery time + a safety buffer to an "order by" date.
+        let reorderData = null;
+        let rfFilter = 'action';   // action | now | soon | plan | all
+        let rfShowAllRows = false;
+        const RF_HORIZON = 90;     // days shown on the timeline
+        const RF_DAY = 86400000;
+        const RF_SPIKE_COLOR = '#8b5cf6';
+        const RF_STATUS = {
+            out:  { rank: 0, label: 'Out of stock',    color: 'var(--danger)' },
+            now:  { rank: 1, label: 'Order now',       color: 'var(--danger)' },
+            soon: { rank: 2, label: 'Order soon',      color: 'var(--warning)' },
+            plan: { rank: 3, label: 'Plan ahead',      color: 'var(--info)' },
+            min:  { rank: 4, label: 'Below minimum',   color: 'var(--warning)' },
+            ok:   { rank: 5, label: 'Healthy',         color: 'var(--success)' },
+            idle: { rank: 6, label: 'No recent sales', color: 'var(--text-dim)' },
+        };
+        // Remembered per browser
+        let rfSettings = (() => {
+            const d = { window: 60, safety: 14, cover: 90, view: 'timeline' };
+            try { return Object.assign(d, JSON.parse(localStorage.getItem('reorderForecastSettings') || '{}')); } catch (e) { return d; }
+        })();
+
+        // Parts On Order (dashboard): every pending supplier checkin. Expected arrival
+        // uses the forecast's lead time for that part when it's loaded, else 14 days.
+        let partsOnOrderData = [];
+        function renderPartsOnOrder() {
+            const el = document.getElementById('partsOnOrderList');
+            if (!el) return;
+            if (!partsOnOrderData.length) {
+                el.innerHTML = '<div style="padding:1rem;color:var(--text-dim);">Nothing on order right now.</div>';
+                return;
+            }
+            const leadById = {};
+            (reorderData?.parts || []).forEach(p => { if (p.lead_time) leadById[p.id] = Math.max(1, Math.round(p.lead_time.days)); });
+            const today = new Date(new Date().toDateString());
+            const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const q = s => escHtml(s || '').replace(/'/g, "\\'");
+            const rows = partsOnOrderData.map(c => {
+                const ordered = new Date(c.purchase_date + 'T00:00:00');
+                const lead = leadById[c.part_id] || 14;
+                const eta = new Date(ordered.getTime() + lead * 86400000);
+                const daysOut = Math.round((eta - today) / 86400000);
+                const etaText = daysOut < 0
+                    ? `<span style="color:var(--danger);font-weight:600;">${fmt(eta)} (${rfPlural(-daysOut, 'day')} late)</span>`
+                    : `${fmt(eta)} <span style="color:var(--text-secondary);font-size:0.8rem;">(${daysOut === 0 ? 'today' : 'in ' + rfPlural(daysOut, 'day')})</span>`;
+                return `<tr>
+                    <td><a href="#" onclick="viewPart(${c.part_id});return false;"><span style="font-family:var(--font-mono);font-size:0.8rem;">${escHtml(c.part_number || '')}</span> ${escHtml(c.part_name || '')}</a></td>
+                    <td style="font-family:var(--font-mono);">${parseInt(c.quantity, 10).toLocaleString()}</td>
+                    <td>${escHtml(c.supplier_name || '')}</td>
+                    <td style="font-family:var(--font-mono);">${fmt(ordered)}</td>
+                    <td>${etaText}</td>
+                    <td><button class="btn btn-small btn-primary" onclick="markReceived(${c.id}, ${c.part_id}, ${parseInt(c.quantity, 10)}, '${q(c.part_name)}', '${q(c.supplier_name)}')">Mark Received</button></td>
+                </tr>`;
+            }).join('');
+            el.innerHTML = `<div style="overflow-x:auto;"><table class="data-table">
+                <thead><tr><th>Part</th><th>Qty</th><th>Supplier</th><th>Ordered</th><th>Expected</th><th></th></tr></thead>
+                <tbody>${rows}</tbody></table></div>`;
+        }
+
+        async function loadReorderForecast() {
+            try {
+                const r = await fetch('api.php?action=get_reorder_forecast');
+                const data = await r.json();
+                if (data.error) throw new Error(data.error);
+                reorderData = data;
+                renderReorderForecast();
+                renderPartsOnOrder();
+            } catch (e) {
+                console.error('Reorder forecast:', e);
+                document.getElementById('reorderForecast').innerHTML = '<div class="rf-empty">Could not load the forecast.</div>';
+            }
+        }
+
+        function setReorderSetting(key, val) {
+            rfSettings[key] = val;
+            try { localStorage.setItem('reorderForecastSettings', JSON.stringify(rfSettings)); } catch (e) {}
+            renderReorderForecast();
+        }
+
+        function setReorderFilter(f) {
+            rfFilter = (rfFilter === f && f !== 'action') ? 'action' : f;
+            rfShowAllRows = false;
+            renderReorderForecast();
+        }
+
+        function rfToday() { return new Date(reorderData.today + 'T00:00:00'); }
+        function rfOffset(dateStr) { return Math.round((new Date(dateStr.slice(0, 10) + 'T00:00:00') - rfToday()) / RF_DAY); }
+        function rfDateLabel(offset, withDay) {
+            const d = new Date(rfToday().getTime() + Math.round(offset) * RF_DAY);
+            return d.toLocaleDateString('en-US', withDay ? { weekday: 'short', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric' });
+        }
+        function rfMoney(n) { return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: n >= 1000 ? 0 : 2, maximumFractionDigits: n >= 1000 ? 0 : 2 }); }
+        function rfPlural(n, w) { return n === 1 ? `${n} ${w}` : `${n} ${/[^aeiou]y$/.test(w) ? w.slice(0, -1) + 'ies' : w + 's'}`; }
+        function rfRoundQty(q) {
+            if (q <= 0) return 0;
+            q = Math.ceil(q);
+            if (q >= 100) return Math.ceil(q / 10) * 10;
+            if (q >= 20) return Math.ceil(q / 5) * 5;
+            return q;
+        }
+
+        // Planned spikes: extra orders spread over spread_days, front-loaded (half-life
+        // ~3 days, the way a podcast's listens tail off after it airs).
+        function rfSpikePlan() {
+            const future = {}, pastDays = new Set();
+            (reorderData.events || []).forEach(ev => {
+                const start = rfOffset(ev.event_date);
+                const spread = Math.max(1, parseInt(ev.spread_days, 10) || 14);
+                const w = [];
+                for (let k = 0; k < spread; k++) w.push(Math.pow(0.5, k / 3));
+                const wSum = w.reduce((a, b) => a + b, 0);
+                w.forEach((wk, k) => {
+                    const t = start + k;
+                    if (t >= 0) future[t] = (future[t] || 0) + ev.extra_orders * wk / wSum;
+                    else pastDays.add(-t); // history offset, left out of the baseline pace
+                });
+            });
+            return { future, pastDays };
+        }
+
+        function rfRate(usage, windowDays, excluded) {
+            let total = 0, days = 0;
+            for (let d = 0; d < windowDays; d++) {
+                if (excluded.has(d)) continue;
+                total += usage[d] || 0;
+                days++;
+            }
+            if (days < 14) { // a spike covered most of the window: fall back to all days
+                total = 0; days = windowDays;
+                for (let d = 0; d < windowDays; d++) total += usage[d] || 0;
+            }
+            return total / days;
+        }
+
+        function rfSimulate(stock, rate, arrivals, spikeUnits) {
+            let level = stock;
+            for (let t = 0; t < 400; t++) {
+                level += arrivals[t] || 0;
+                const demand = rate + (spikeUnits ? (spikeUnits[t] || 0) : 0);
+                if (demand > 0 && level - demand < 0) return t + Math.max(0, level) / demand;
+                level -= demand;
+            }
+            return Infinity;
+        }
+
+        function rfForecastPart(part, spikes, orderRate) {
+            const s = rfSettings;
+            const usage = part.usage || {};
+            const rate = rfRate(usage, s.window, spikes.pastDays);
+            const unitsPerOrder = orderRate > 0 ? rate / orderRate : 0;
+            const spikeUnits = {};
+            let spikeTotal = 0;
+            Object.keys(spikes.future).forEach(t => {
+                spikeUnits[t] = spikes.future[t] * unitsPerOrder;
+                if (t < RF_HORIZON) spikeTotal += spikeUnits[t];
+            });
+
+            // Trend: last 30 days vs the 30 before
+            let recent = 0, prior = 0;
+            for (let d = 0; d < 30; d++) { recent += usage[d] || 0; prior += usage[d + 30] || 0; }
+            const trend = prior > 0 ? (recent - prior) / prior : (recent > 0 ? null : 0);
+
+            const weeks = [];
+            for (let w = 11; w >= 0; w--) {
+                let sum = 0;
+                for (let d = w * 7; d < w * 7 + 7; d++) sum += usage[d] || 0;
+                weeks.push(sum);
+            }
+
+            const lead = Math.max(1, Math.round(part.lead_time.days));
+            const arrivals = {};
+            let pendingQty = 0;
+            const inbound = part.pending.map(pe => {
+                const eta = rfOffset(pe.purchase_date) + lead;
+                const overdue = eta < 0;
+                const at = overdue ? 1 : eta; // late shipments assumed a day or so out
+                arrivals[at] = (arrivals[at] || 0) + pe.quantity;
+                pendingQty += pe.quantity;
+                return { ...pe, eta: at, overdue };
+            });
+
+            const stock = Math.max(0, part.current_stock);
+            const stockout = rfSimulate(stock, rate, arrivals, spikeUnits);
+            const stockoutNoSpike = spikeTotal > 0 ? rfSimulate(stock, rate, arrivals, null) : stockout;
+            const orderBy = stockout - lead - s.safety;
+
+            // Order up to: demand through delivery + the coverage period, plus the buffer
+            let demand = s.safety * rate;
+            for (let t = 0; t < lead + s.cover; t++) demand += rate + (spikeUnits[t] || 0);
+            let qty = demand - stock - pendingQty;
+            if (part.min_stock > 0) qty = Math.max(qty, part.min_stock - stock - pendingQty);
+            qty = rfRoundQty(qty);
+
+            let status;
+            const hasDemand = rate > 0 || spikeTotal > 0;
+            if (!hasDemand) status = (part.min_stock > 0 && stock + pendingQty <= part.min_stock) ? 'min' : 'idle';
+            else if (stock <= 0 && pendingQty === 0) status = 'out';
+            else if (orderBy <= 0) status = stock <= 0 ? 'out' : 'now';
+            else if (orderBy <= 14) status = 'soon';
+            else if (orderBy <= 45) status = 'plan';
+            else status = (part.min_stock > 0 && stock + pendingQty <= part.min_stock) ? 'min' : 'ok';
+
+            const needsBuy = ['out', 'now', 'soon', 'plan', 'min'].includes(status) && qty > 0;
+            return {
+                part, rate, trend, weeks, lead, inbound, pendingQty, stock, stockout, stockoutNoSpike,
+                spikeTotal, orderBy, qty: needsBuy ? qty : 0, cost: needsBuy ? qty * part.unit_cost : 0, status,
+            };
+        }
+
+        function rfComputeAll() {
+            const spikes = rfSpikePlan();
+            const orderRate = rfRate(reorderData.orders_usage || {}, rfSettings.window, spikes.pastDays);
+            const rows = reorderData.parts.map(p => rfForecastPart(p, spikes, orderRate));
+            rows.sort((a, b) => RF_STATUS[a.status].rank - RF_STATUS[b.status].rank
+                || a.orderBy - b.orderBy
+                || a.part.part_name.localeCompare(b.part.part_name));
+            return { rows, orderRate, spikes };
+        }
+
+        function rfSparkline(weeks) {
+            const max = Math.max(...weeks, 1), W = 66, H = 18, bw = W / weeks.length;
+            const bars = weeks.map((v, i) => {
+                const h = Math.max(v > 0 ? 2 : 1, (v / max) * H);
+                return `<rect x="${(i * bw + 0.5).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${(bw - 1.5).toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="${i === weeks.length - 1 ? 'var(--accent-primary)' : 'var(--bg-light)'}"/>`;
+            }).join('');
+            return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="flex-shrink:0;"><title>Units used per week, last 12 weeks: ${weeks.join(', ')}</title>${bars}</svg>`;
+        }
+
+        function rfLeadText(lt) {
+            if (lt.source === 'part') return `${lt.days < 1 ? 'same-day' : Math.round(lt.days) + 'd'} lead (${rfPlural(lt.samples, 'delivery')})`;
+            if (lt.source === 'supplier') return `${Math.round(lt.days)}d lead (supplier avg)`;
+            return `${Math.round(lt.days)}d lead (assumed, no history)`;
+        }
+
+        function rfFilterRows(rows) {
+            const f = rfFilter;
+            if (f === 'all') return rows;
+            if (f === 'now') return rows.filter(r => r.status === 'out' || r.status === 'now');
+            if (f === 'soon') return rows.filter(r => r.status === 'soon');
+            if (f === 'plan') return rows.filter(r => r.status === 'plan');
+            if (f === 'ok') return rows.filter(r => r.status === 'ok' || r.status === 'idle');
+            return rows.filter(r => ['out', 'now', 'soon', 'plan', 'min'].includes(r.status));
+        }
+
+        function renderReorderForecast() {
+            const container = document.getElementById('reorderForecast');
+            if (!reorderData || !container) return;
+            ['rfWindow', 'rfSafety', 'rfCover'].forEach((id, i) => {
+                const el = document.getElementById(id);
+                if (el) el.value = String(rfSettings[['window', 'safety', 'cover'][i]]);
+            });
+            document.querySelectorAll('#rfViewToggle button').forEach(b => b.classList.toggle('active', b.dataset.view === rfSettings.view));
+
+            const { rows, orderRate } = rfComputeAll();
+            const by = st => rows.filter(r => st.includes(r.status));
+            const nowRows = by(['out', 'now']), soonRows = by(['soon']), planRows = by(['plan']), okRows = by(['ok', 'idle']);
+            const sum = rs => rs.reduce((a, r) => a + r.cost, 0);
+            const actionRows = by(['out', 'now', 'soon', 'plan', 'min']);
+
+            const statEl = document.getElementById('statLowStock');
+            if (statEl) statEl.textContent = nowRows.length;
+
+            container.innerHTML = rfHeroHtml(rows, orderRate)
+                + rfTilesHtml(nowRows, soonRows, planRows, okRows, sum, actionRows)
+                + rfSpikesHtml(orderRate)
+                + (rfSettings.view === 'supplier' ? rfSupplierHtml(rfFilterRows(rows)) : rfTimelineHtml(rfFilterRows(rows)))
+                + rfLegendHtml();
+        }
+
+        function rfHeroHtml(rows, orderRate) {
+            const out = rows.filter(r => r.status === 'out');
+            const moving = rows.filter(r => isFinite(r.stockout) && r.status !== 'out').sort((a, b) => a.stockout - b.stockout);
+            const perWeek = orderRate * 7;
+            const paceText = `Selling about <b>${perWeek.toFixed(perWeek < 10 ? 1 : 0)} orders a week</b> (last ${rfSettings.window} days${(reorderData.events || []).some(e => rfOffset(e.event_date) < 0) ? ', past spikes left out' : ''}).`;
+            let icon, color, text;
+            if (out.length) {
+                color = 'var(--danger)'; icon = '!';
+                text = `<strong>${rfPlural(out.length, 'part')} ${out.length === 1 ? 'is' : 'are'} out of stock</strong> and blocking sales: ${out.slice(0, 3).map(r => escHtml(r.part.part_name)).join(', ')}${out.length > 3 ? '...' : ''}.`;
+            } else if (moving.length) {
+                const r = moving[0];
+                const days = Math.floor(r.stockout);
+                color = RF_STATUS[r.status].color; icon = days < 30 ? '!' : '✓';
+                const ob = r.orderBy <= 0 ? 'Order it today to close the gap.' : `Order by <strong>${rfDateLabel(r.orderBy, true)}</strong> to stay ahead.`;
+                text = `Next projected stockout: <strong>${escHtml(r.part.part_name)}</strong> in about <strong>${rfPlural(days, 'day')}</strong> (${rfDateLabel(r.stockout)}). ${ob}`;
+            } else {
+                color = 'var(--success)'; icon = '✓';
+                text = '<strong>No stockouts projected</strong> at the current sales pace.';
+            }
+            return `<div class="rf-hero">
+                <div class="rf-hero-icon" style="background:${color}">${icon}</div>
+                <div class="rf-hero-text">${text}<div class="rf-hero-sub">${paceText}</div></div>
+            </div>`;
+        }
+
+        function rfTilesHtml(nowRows, soonRows, planRows, okRows, sum, actionRows) {
+            const tile = (key, color, ring, num, label, sub) => `
+                <button class="rf-tile ${rfFilter === key ? 'active' : ''}" style="--tile-color:${color};--tile-ring:${ring}" onclick="setReorderFilter('${key}')">
+                    <div class="rf-tile-num">${num}</div>
+                    <div class="rf-tile-label">${label}</div>
+                    <div class="rf-tile-sub">${sub}</div>
+                </button>`;
+            return `<div class="rf-tiles">
+                ${tile('now', 'var(--danger)', 'rgba(239,68,68,0.18)', nowRows.length, 'Order now', nowRows.length ? rfMoney(sum(nowRows)) : 'nothing late')}
+                ${tile('soon', 'var(--warning)', 'rgba(245,158,11,0.2)', soonRows.length, 'Within 2 weeks', soonRows.length ? rfMoney(sum(soonRows)) : 'all clear')}
+                ${tile('plan', 'var(--info)', 'rgba(59,130,246,0.18)', planRows.length, 'Within 45 days', planRows.length ? rfMoney(sum(planRows)) : 'all clear')}
+                ${tile('ok', 'var(--success)', 'rgba(16,185,129,0.18)', okRows.length, 'Healthy', '45+ days out')}
+                ${tile('action', 'var(--accent-primary)', 'rgba(26,86,219,0.18)', rfMoney(sum(actionRows)), 'Restock budget', `${rfPlural(actionRows.length, 'part')} to buy`)}
+            </div>`;
+        }
+
+        function rfSpikesHtml(orderRate) {
+            const events = (reorderData.events || []).filter(e => rfOffset(e.event_date) + (parseInt(e.spread_days, 10) || 14) > 0);
+            const chips = events.map(e => {
+                const off = rfOffset(e.event_date);
+                const when = off === 0 ? 'today' : off === 1 ? 'tomorrow' : off < 0 ? `${-off}d ago` : rfDateLabel(off, true);
+                const mult = orderRate > 0 ? ` (~${(e.extra_orders / (orderRate * 7)).toFixed(1)}× a normal week)` : '';
+                return `<button class="rf-spike-chip" onclick="openDemandEventModal(${e.id})" title="${escHtml(e.note || '')}${e.note ? '\n' : ''}Click to edit">
+                    <span style="color:${RF_SPIKE_COLOR}">●</span> <b>${escHtml(e.name)}</b> · ${when} · +${e.extra_orders} orders over ${e.spread_days}d${mult}
+                </button>`;
+            }).join('');
+            return `<div class="rf-spikes">
+                <span class="rf-spikes-label">Planned spikes</span>
+                ${chips || '<span style="color:var(--text-dim);font-size:0.8rem;">None. Add a podcast, review, or sale you expect to bring in extra orders.</span>'}
+                <button class="rf-spike-add" onclick="openDemandEventModal()">+ Add spike</button>
+            </div>`;
+        }
+
+        function rfTimelineHtml(rows) {
+            if (!rows.length) {
+                return `<div class="rf-empty">${rfFilter === 'action' ? '🎉 Nothing needs ordering in the next 45 days.' : 'No parts in this group.'}</div>`;
+            }
+            const H = RF_HORIZON;
+            const pct = d => (Math.max(0, Math.min(H, d)) / H * 100).toFixed(2) + '%';
+            const ticks = [];
+            for (let d = 14; d < H; d += 14) ticks.push(d);
+            const events = (reorderData.events || []).map(e => ({ ...e, off: rfOffset(e.event_date) })).filter(e => e.off >= 0 && e.off < H);
+
+            const axis = `<div class="rf-axis"><div></div><div class="rf-axis-track">
+                    <span class="first" style="left:0">Today</span>
+                    ${ticks.map(d => `<span style="left:${pct(d)}">${rfDateLabel(d)}</span>`).join('')}
+                    ${events.map(e => `<span style="left:${pct(e.off)};top:-14px;color:${RF_SPIKE_COLOR};font-weight:700;" title="${escHtml(e.name)}: +${e.extra_orders} orders">▼</span>`).join('')}
+                </div><div></div></div>`;
+
+            const limit = rfShowAllRows ? rows.length : 12;
+            const body = rows.slice(0, limit).map(r => rfTimelineRow(r, pct, ticks, events)).join('');
+            const more = rows.length > limit
+                ? `<button class="rf-more" onclick="rfShowAllRows=true;renderReorderForecast()">Show ${rows.length - limit} more parts</button>` : '';
+            return axis + body + more;
+        }
+
+        function rfTimelineRow(r, pct, ticks, events) {
+            const H = RF_HORIZON, st = RF_STATUS[r.status], p = r.part;
+            const so = r.stockout, ob = r.orderBy;
+            let track = ticks.map(d => `<div class="rf-grid" style="left:${pct(d)}"></div>`).join('');
+            track += events.map(e => `<div class="rf-grid" style="left:${pct(e.off)};background:${RF_SPIKE_COLOR};opacity:0.35;width:2px;"></div>`).join('');
+
+            if (r.status === 'idle' || r.status === 'min' && !isFinite(so)) {
+                track += `<div class="rf-bar solo" style="left:0;width:100%;background:var(--bg-light);"></div>`;
+            } else if (!isFinite(so) || so >= H && ob >= H) {
+                track += `<div class="rf-bar safe solo fade" style="left:0;width:100%;"></div>`;
+            } else if (ob <= 0) {
+                track += `<div class="rf-bar late solo ${so >= H ? 'fade' : ''}" style="left:0;width:${pct(so)};"></div>`;
+            } else {
+                track += `<div class="rf-bar safe" style="left:0;width:${pct(ob)};"></div>`;
+                track += `<div class="rf-bar window ${so >= H ? 'fade' : ''}" style="left:${pct(ob)};width:calc(${pct(so)} - ${pct(ob)});border-radius:0 6px 6px 0;" title="Reorder window: ${r.lead}d delivery + ${rfSettings.safety}d buffer"></div>`;
+                track += `<div class="rf-flag" style="left:${pct(ob)}" title="Order by ${rfDateLabel(ob, true)}"></div>`;
+            }
+            if (isFinite(so) && so < H) {
+                // If ordered today it lands at day "lead": show any stretch with no stock
+                if ((r.status === 'out' || r.status === 'now') && so < r.lead) {
+                    track += `<div class="rf-bar gap" style="left:${pct(so)};width:calc(${pct(r.lead)} - ${pct(so)});" title="About ${rfPlural(Math.ceil(r.lead - so), 'day')} with no stock even if ordered today"></div>`;
+                }
+                track += `<div class="rf-out" style="left:${pct(so)}" title="Projected to run out ${rfDateLabel(so, true)}"></div>`;
+                track += `<div class="rf-endlabel" style="left:${pct(so)}">out ${rfDateLabel(so)}</div>`;
+            }
+            if ((r.status === 'out' || r.status === 'now') && r.lead < H) {
+                track += `<div class="rf-arrive" style="left:${pct(r.lead)}" title="Ordered today, arrives about ${rfDateLabel(r.lead, true)}"></div>`;
+            }
+            r.inbound.forEach(ib => {
+                if (ib.eta < H) track += `<div class="rf-inbound ${ib.overdue ? 'overdue' : ''}" style="left:${pct(ib.eta)}" title="${ib.quantity} on order${ib.supplier ? ' from ' + escHtml(ib.supplier) : ''} (ordered ${ib.purchase_date})${ib.overdue ? ', past its expected arrival' : ', expected ~' + rfDateLabel(ib.eta)}">+${ib.quantity}</div>`;
+            });
+
+            const trend = r.trend === null ? '<span class="rf-trend-up">new</span>'
+                : Math.abs(r.trend) < 0.1 ? '<span>steady</span>'
+                : r.trend >= 1 ? `<span class="rf-trend-up" title="Last 30 days vs the 30 before">▲${(r.trend + 1).toFixed(1)}×</span>`
+                : r.trend > 0 ? `<span class="rf-trend-up" title="Last 30 days vs the 30 before">▲${Math.round(r.trend * 100)}%</span>`
+                : `<span class="rf-trend-down">▼${Math.round(-r.trend * 100)}%</span>`;
+            const perWeek = r.rate * 7;
+            const burn = r.rate > 0
+                ? `${rfSparkline(r.weeks)}<span>~${perWeek < 10 ? perWeek.toFixed(1) : Math.round(perWeek)}/wk</span>${trend}`
+                : `${rfSparkline(r.weeks)}<span>no sales in ${rfSettings.window}d</span>`;
+            const spikeNote = r.spikeTotal >= 1
+                ? `<div class="rf-meta" style="color:${RF_SPIKE_COLOR};font-weight:600;">+${Math.round(r.spikeTotal)} from planned spikes${isFinite(r.stockoutNoSpike) && r.stockoutNoSpike - r.stockout >= 1 ? `, runs out ${Math.round(r.stockoutNoSpike - r.stockout)}d sooner` : ''}</div>` : '';
+
+            let when, whenSub;
+            const daysLeft = isFinite(so) ? Math.floor(so) : null;
+            if (r.status === 'out') { when = 'Order today'; whenSub = r.pendingQty ? `out now, ${r.pendingQty} inbound` : 'out of stock now'; }
+            else if (r.status === 'now') { when = 'Order today'; whenSub = ob < -0.5 ? `${rfPlural(Math.round(-ob), 'day')} late` : 'order-by is today'; }
+            else if (r.status === 'idle') { when = 'No recent sales'; whenSub = `${r.stock} in stock`; }
+            else if (r.status === 'min' && !isFinite(so)) { when = 'Below minimum'; whenSub = `${r.stock} / min ${p.min_stock}`; }
+            else if (!isFinite(ob) || ob > 365) { when = 'Over a year'; whenSub = `${r.stock} in stock`; }
+            else { when = `Order by ${rfDateLabel(ob)}`; whenSub = `in ${rfPlural(Math.round(ob), 'day')}`; }
+
+            const buy = r.qty > 0
+                ? `<div class="rf-buy">Buy <b>${r.qty}</b> · ${rfMoney(r.cost)}</div><div class="rf-when-sub">${escHtml(p.supplier || 'no preferred supplier')}</div>` : '';
+            const projects = [...new Set(p.projects.map(n => n.replace(/ (CW Key|Adaptor|Adapter|Dongle).*$/i, '')))].join(', ');
+
+            return `<div class="rf-row">
+                <div>
+                    <div><span class="rf-pill" style="--pill:${st.color}">${st.label}</span><span class="rf-name" onclick="viewPart(${p.id})">${escHtml(p.part_name)}</span></div>
+                    <div class="rf-meta"><span class="rf-pn">${escHtml(p.part_number)}</span><span>${r.stock} on hand${daysLeft !== null ? ` · ${daysLeft}d left` : ''}</span><span title="${escHtml(p.projects.join(', '))}">${escHtml(projects)}</span></div>
+                    <div class="rf-burn">${burn}<span style="color:var(--text-dim)">·</span><span title="${p.lead_time.min !== null ? `Range ${p.lead_time.min}-${p.lead_time.max} days` : 'No delivery history yet'}">${rfLeadText(p.lead_time)}</span></div>
+                    ${spikeNote}
+                </div>
+                <div class="rf-track">${track}<div class="rf-today"></div></div>
+                <div class="rf-action">
+                    <div><div class="rf-when" style="color:${r.status === 'out' || r.status === 'now' ? 'var(--danger)' : 'var(--text-primary)'}">${when}</div><div class="rf-when-sub">${whenSub}</div></div>
+                    ${buy ? `<div>${buy}</div>` : ''}
+                </div>
+            </div>`;
+        }
+
+        function rfSupplierHtml(rows) {
+            const buyRows = rows.filter(r => r.qty > 0);
+            if (!buyRows.length) return `<div class="rf-empty">Nothing to buy in this group. Try "Restock budget" or "Healthy" above.</div>`;
+            const groups = {};
+            buyRows.forEach(r => { const k = r.part.supplier || 'No preferred supplier'; (groups[k] = groups[k] || []).push(r); });
+            const list = Object.entries(groups).map(([name, rs]) => ({ name, rs, total: rs.reduce((a, r) => a + r.cost, 0), first: Math.min(...rs.map(r => r.orderBy)) }))
+                .sort((a, b) => a.first - b.first);
+            window.rfShoppingGroups = list;
+            return `<div class="rf-suppliers">${list.map((g, gi) => `
+                <div class="rf-sup">
+                    <div class="rf-sup-head">
+                        <div>
+                            <div class="rf-sup-name">${escHtml(g.name)}</div>
+                            <div class="rf-sup-sub">${rfPlural(g.rs.length, 'part')} · ${g.first <= 0 ? '<b style="color:var(--danger)">order today</b>' : 'order by ' + rfDateLabel(g.first, true)}</div>
+                        </div>
+                        <div>
+                            <div class="rf-sup-total">${rfMoney(g.total)}</div>
+                            <button class="btn btn-small" style="margin-top:4px;padding:2px 8px;font-size:0.72rem;" onclick="rfCopySupplier(${gi}, this)">Copy list</button>
+                        </div>
+                    </div>
+                    <table>${g.rs.map(r => `<tr>
+                        <td><span class="rf-dot" style="--pill:${RF_STATUS[r.status].color}" title="${RF_STATUS[r.status].label}"></span><span class="rf-name" style="font-size:0.82rem" onclick="viewPart(${r.part.id})">${escHtml(r.part.part_name)}</span>
+                            <div class="rf-pn" style="font-size:0.72rem;margin-left:14px;">${escHtml(r.part.supplier_pn || r.part.part_number)}${r.part.url ? ` · <a href="${escHtml(r.part.url)}" target="_blank" rel="noopener">open ↗</a>` : ''}</div></td>
+                        <td class="num"><b>${r.qty}</b><div style="color:var(--text-dim);font-size:0.72rem;">@ ${rfMoney(r.part.unit_cost)}</div></td>
+                        <td class="num">${rfMoney(r.cost)}<div style="color:var(--text-dim);font-size:0.72rem;">${r.orderBy <= 0 ? 'now' : 'by ' + rfDateLabel(r.orderBy)}</div></td>
+                    </tr>`).join('')}</table>
+                </div>`).join('')}</div>`;
+        }
+
+        function rfCopySupplier(gi, btn) {
+            const g = (window.rfShoppingGroups || [])[gi];
+            if (!g) return;
+            const text = `${g.name} order\n` + g.rs.map(r => `${r.qty} x ${r.part.supplier_pn || r.part.part_number}  ${r.part.part_name}${r.part.url ? '  ' + r.part.url : ''}`).join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                const old = btn.textContent;
+                btn.textContent = 'Copied ✓';
+                setTimeout(() => { btn.textContent = old; }, 1500);
+            });
+        }
+
+        function rfLegendHtml() {
+            return `<div class="rf-legend">
+                <span><span class="sw" style="background:linear-gradient(90deg,var(--accent-primary),var(--accent-secondary))"></span>Stock on hand</span>
+                <span><span class="sw" style="background:repeating-linear-gradient(-45deg,var(--warning) 0 4px,#fbbf24 4px 8px)"></span>Reorder window (delivery + buffer)</span>
+                <span><span class="sw" style="background:repeating-linear-gradient(-45deg,var(--danger) 0 4px,#f87171 4px 8px)"></span>Past the order-by date</span>
+                <span>▶ Order by</span>
+                <span><span class="sw" style="background:var(--danger);width:9px;height:9px;border-radius:50%"></span>Runs out</span>
+                <span><span class="sw" style="background:var(--info);width:14px"></span>Inbound order</span>
+                <span><span class="sw" style="border-left:2px dashed var(--success);width:2px;border-radius:0"></span>Ordered today, arrives</span>
+                <span><span class="sw" style="background:${RF_SPIKE_COLOR};width:3px;border-radius:0"></span>Planned spike</span>
+                <details>
+                    <summary>How this works</summary>
+                    <ul>
+                        <li><b>Sales pace:</b> every order in the chosen window is run through each kit's BOM (same rules as inventory deduction, including the right color/variation), giving units used per day for each part. Promo giveaways count too. Days covered by a past planned spike are left out so one big week doesn't inflate the normal pace.</li>
+                        <li><b>Delivery time:</b> the average of the part's last 5 deliveries (order date to received). With no history, it uses that supplier's average across all parts, then 14 days.</li>
+                        <li><b>Inbound:</b> pending parts orders land at their order date + that delivery time. Late ones show red and are assumed to arrive any day.</li>
+                        <li><b>Planned spikes</b> add extra orders, heaviest on the first days and tapering off. Each part gets its share based on how often it appears in a typical order.</li>
+                        <li><b>Order by</b> = run-out date minus delivery time minus your buffer. <b>Buy</b> covers the delivery time plus the "Order for" period plus the buffer, minus stock and anything inbound.</li>
+                    </ul>
+                </details>
+            </div>`;
+        }
+
+        function openDemandEventModal(id) {
+            const ev = id ? (reorderData.events || []).find(e => e.id == id) : null;
+            const tomorrow = new Date(rfToday().getTime() + RF_DAY).toISOString().slice(0, 10);
+            // Reference points for picking a number
+            const ou = reorderData.orders_usage || {};
+            let bestWeek = 0;
+            for (let w = 0; w < 26; w++) {
+                let s = 0;
+                for (let d = w * 7; d < w * 7 + 7; d++) s += ou[d] || 0;
+                bestWeek = Math.max(bestWeek, s);
+            }
+            const spikes = rfSpikePlan();
+            const weekly = rfRate(ou, rfSettings.window, spikes.pastDays) * 7;
+            const modal = createModal(ev ? 'Edit Planned Spike' : 'Plan a Demand Spike', `
+                <form id="demandEventForm" onsubmit="event.preventDefault();saveDemandEvent(${ev ? ev.id : 0})">
+                    <div class="form-group">
+                        <label class="form-label">What's happening</label>
+                        <input type="text" id="deName" class="form-input" required maxlength="150" placeholder="e.g. Featured on a podcast" value="${escHtml(ev ? ev.name : '')}">
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                        <div class="form-group">
+                            <label class="form-label">Date</label>
+                            <input type="date" id="deDate" class="form-input" required value="${ev ? ev.event_date : tomorrow}">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Extra orders</label>
+                            <input type="number" id="deExtra" class="form-input" required min="1" value="${ev ? ev.extra_orders : ''}">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Over how many days</label>
+                            <input type="number" id="deSpread" class="form-input" required min="1" max="90" value="${ev ? ev.spread_days : 14}">
+                        </div>
+                    </div>
+                    <p style="font-size:0.8rem;color:var(--text-secondary);margin:-4px 0 12px;">For reference: you're selling about <b>${weekly.toFixed(1)} orders a week</b> right now, and your busiest week in the last 6 months had <b>${bestWeek}</b>. Extra orders are on top of normal sales, heaviest in the first few days.</p>
+                    <div class="form-group">
+                        <label class="form-label">Note (optional)</label>
+                        <input type="text" id="deNote" class="form-input" maxlength="500" value="${escHtml(ev && ev.note ? ev.note : '')}">
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:space-between;margin-top:1rem;">
+                        <div>${ev ? `<button type="button" class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger);" onclick="deleteDemandEvent(${ev.id}, this)">Delete</button>` : ''}</div>
+                        <div style="display:flex;gap:8px;">
+                            <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
+                            <button type="submit" class="btn btn-primary">${ev ? 'Save' : 'Add Spike'}</button>
+                        </div>
+                    </div>
+                </form>`);
+            modal.querySelector('#deName').focus();
+        }
+
+        async function saveDemandEvent(id) {
+            const body = new URLSearchParams({
+                action: 'save_demand_event', id: id || '',
+                name: document.getElementById('deName').value,
+                event_date: document.getElementById('deDate').value,
+                extra_orders: document.getElementById('deExtra').value,
+                spread_days: document.getElementById('deSpread').value,
+                note: document.getElementById('deNote').value,
+            });
+            const r = await fetch('api.php', { method: 'POST', body });
+            const data = await r.json();
+            if (data.error) { alert(data.error); return; }
+            document.getElementById('demandEventForm').closest('.modal').remove();
+            loadReorderForecast();
+        }
+
+        async function deleteDemandEvent(id, btn) {
+            // Two-click delete instead of a confirm() dialog
+            if (btn.dataset.armed !== '1') {
+                btn.dataset.armed = '1';
+                btn.textContent = 'Click again to delete';
+                return;
+            }
+            await fetch('api.php', { method: 'POST', body: new URLSearchParams({ action: 'delete_demand_event', id }) });
+            btn.closest('.modal').remove();
+            loadReorderForecast();
         }
 
         function setBottleneckTarget(val) {
@@ -3029,16 +3702,24 @@
                     ? `<span style="font-size:0.78em;color:var(--accent-secondary);font-weight:600;background:rgba(26,86,219,0.09);padding:2px 7px;border-radius:3px;">${p.variation_attribute}: ${p.variation_value}</span>`
                     : `<span style="font-size:0.78em;color:var(--text-dim);">Fixed</span>`;
 
+                // Row number = position in the saved BOM order, so it stays the same
+                // even when the table is searched or sorted by a column
+                const rowNum = project.parts.indexOf(p) + 1;
                 const dragAttrs = bomDragMode
-                    ? `draggable="true" ondragstart="bomDragSrcIdx=${i}" ondragover="event.preventDefault();this.style.outline='2px solid var(--accent-primary)'" ondragleave="this.style.outline=''" ondrop="event.preventDefault();this.style.outline='';bomDropRow(${i})"`
+                    ? `ondragover="event.preventDefault();this.style.outline='2px solid var(--accent-primary)'" ondragleave="this.style.outline=''" ondrop="event.preventDefault();this.style.outline='';bomDropRow(${i})"`
                     : '';
+                // Only the handle is draggable, so the row number box stays clickable/typeable
                 const dragHandle = bomDragMode
-                    ? `<td style="cursor:grab;text-align:center;color:var(--text-dim);font-size:1.1em;padding:0 6px;">&#8942;&#8942;</td>`
+                    ? `<td draggable="true" ondragstart="bomDragSrcIdx=${i};event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain','');event.dataTransfer.setDragImage(this.parentElement,10,10)" title="Drag to move" style="cursor:grab;text-align:center;color:var(--text-dim);font-size:1.1em;padding:0 6px;">&#8942;&#8942;</td>`
                     : '';
+                const rowNumCell = bomDragMode
+                    ? `<td style="padding:2px 4px;"><input type="number" class="form-input" min="1" max="${project.parts.length}" value="${rowNum}" title="Type a row number and press Return to move this part there" onchange="moveBOMPart(${i}, this.value)" onkeydown="if(event.key==='Enter'){this.blur();}" style="width:58px;padding:3px 6px;font-family:var(--font-mono);text-align:center;"></td>`
+                    : `<td style="font-family:var(--font-mono);color:var(--text-dim);text-align:center;">${rowNum}</td>`;
 
                 return `
                 <tr ${dragAttrs}>
                     ${dragHandle}
+                    ${rowNumCell}
                     <td>${p.part_number}</td>
                     <td>${p.part_name}</td>
                     <td>${p.category || '-'}</td>
@@ -3068,7 +3749,7 @@
             const totalRow = (bomDragMode || bomSearchQuery.trim())
                 ? ''
                 : `<tr style="font-weight: bold; background: var(--bg-light);">
-                       <td colspan="6" style="text-align: right;">Fixed Parts BOM Cost:</td>
+                       <td colspan="7" style="text-align: right;">Fixed Parts BOM Cost:</td>
                        <td colspan="3">$${parseFloat(project.fixed_bom_cost ?? project.total_bom_cost ?? 0).toFixed(2)}</td>
                    </tr>`;
 
@@ -3077,11 +3758,11 @@
                 ? ''
                 : project.variation_costs.map(vc => `
                     <tr style="background: var(--bg-card-alt-row);">
-                        <td colspan="6" style="text-align: right;">Kit Cost, ${escHtml(vc.label)}:</td>
+                        <td colspan="7" style="text-align: right;">Kit Cost, ${escHtml(vc.label)}:</td>
                         <td colspan="3">$${parseFloat(vc.cost).toFixed(2)}</td>
                     </tr>`).join('');
 
-            const colSpanEmpty = bomDragMode ? 10 : 9;
+            const colSpanEmpty = bomDragMode ? 11 : 10;
             const dragHandleTh = bomDragMode ? '<th style="width:28px;"></th>' : '';
 
             container.innerHTML = `
@@ -3089,6 +3770,7 @@
                     <thead>
                         <tr>
                             ${dragHandleTh}
+                            <th style="width:${bomDragMode ? 70 : 40}px;text-align:center;" title="Row number in the saved BOM order">#</th>
                             <th style="${thStyle}" ${thClick('part_number')}>Part Number${arrow('part_number')}</th>
                             <th style="${thStyle}" ${thClick('part_name')}>Part Name${arrow('part_name')}</th>
                             <th style="${thStyle}" ${thClick('category')}>Category${arrow('category')}</th>
@@ -3154,14 +3836,28 @@
         }
 
         function bomDropRow(targetIdx) {
-            if (bomDragSrcIdx === null || bomDragSrcIdx === targetIdx) { bomDragSrcIdx = null; return; }
-            const parts = window.currentProjectData.parts;
-            const dragged = parts.splice(bomDragSrcIdx, 1)[0];
-            parts.splice(targetIdx, 0, dragged);
+            const srcIdx = bomDragSrcIdx;
             bomDragSrcIdx = null;
+            if (srcIdx === null || srcIdx === targetIdx) return;
+            moveBOMPart(srcIdx, targetIdx + 1);
+        }
+
+        // Move the part at fromIdx so it lands on row number toRow (1-based), then save
+        function moveBOMPart(fromIdx, toRow) {
+            const parts = window.currentProjectData.parts;
+            let targetIdx = parseInt(toRow, 10) - 1;
+            if (isNaN(targetIdx)) { renderBOMTable(); return; }
+            targetIdx = Math.max(0, Math.min(parts.length - 1, targetIdx));
+            if (targetIdx !== fromIdx) {
+                const moved = parts.splice(fromIdx, 1)[0];
+                parts.splice(targetIdx, 0, moved);
+                saveBOMOrder();
+            }
             renderBOMTable();
-            // Persist the new order
-            const items = parts.map((p, i) => ({ id: p.id, sort_order: i + 1 }));
+        }
+
+        function saveBOMOrder() {
+            const items = window.currentProjectData.parts.map((p, i) => ({ id: p.id, sort_order: i + 1 }));
             fetch('api.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -3169,61 +3865,157 @@
             });
         }
 
-        function exportBOM() {
+        // ExcelJS is only needed for BOM export, so load it the first time it's used
+        function loadExcelJS() {
+            if (window.ExcelJS) return Promise.resolve();
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+                script.onload = resolve;
+                script.onerror = () => reject(new Error('Could not load the spreadsheet library'));
+                document.head.appendChild(script);
+            });
+        }
+
+        async function exportBOM() {
             if (!window.currentProjectData || !window.currentProjectData.parts) {
                 alert('No BOM data available to export');
                 return;
             }
-            
+
             const project = window.currentProjectData;
+            // Always the saved BOM order (same as the # column and Reorder mode)
             const parts = project.parts;
-            
+
             if (parts.length === 0) {
                 alert('This project has no parts in the BOM');
                 return;
             }
-            
-            // CSV headers
-            let csv = 'Part Number,Part Name,Description,Quantity Required,Unit Cost,Line Total,Supplier,Supplier Part Number,Manufacturer Part Number,Product Link\n';
-            
-            // Add each part as a row
-            parts.forEach(part => {
-                const partNumber = (part.part_number || '').replace(/"/g, '""');
-                const partName = (part.part_name || '').replace(/"/g, '""');
-                const description = (part.description || '').replace(/"/g, '""');
-                const qtyRequired = part.quantity_required || 0;
-                const unitCost = parseFloat(part.unit_cost || 0).toFixed(4);
-                const lineTotal = parseFloat(part.line_total || 0).toFixed(2);
-                const supplier = (part.preferred_supplier || 'No preferred supplier').replace(/"/g, '""');
-                const supplierPN = (part.preferred_supplier_pn || '').replace(/"/g, '""');
-                const mfrPN = (part.preferred_mfr_pn || '').replace(/"/g, '""');
-                const url = part.preferred_url || '';
-                
-                csv += `"${partNumber}","${partName}","${description}",${qtyRequired},${unitCost},${lineTotal},"${supplier}","${supplierPN}","${mfrPN}","${url}"\n`;
+
+            try {
+                await loadExcelJS();
+            } catch (e) {
+                alert(e.message);
+                return;
+            }
+
+            const wb = new ExcelJS.Workbook();
+            wb.creator = 'KI6CR Labs';
+            const ws = wb.addWorksheet('BOM', {
+                views: [{ state: 'frozen', ySplit: 4, showGridLines: false }],
+                pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
             });
-            
-            // Add summary rows
-            csv += `\n"FIXED PARTS BOM COST",,,,,$${parseFloat(project.fixed_bom_cost ?? project.total_bom_cost ?? 0).toFixed(2)}\n`;
-            (project.variation_costs || []).forEach(vc => {
-                const label = (vc.label || '').replace(/"/g, '""');
-                csv += `"KIT COST: ${label}",,,,,$${parseFloat(vc.cost).toFixed(2)}\n`;
+
+            const columns = [
+                { header: '#', key: 'row', width: 5 },
+                { header: 'Part Number', key: 'part_number', width: 14 },
+                { header: 'Part Name', key: 'part_name', width: 32 },
+                { header: 'Description', key: 'description', width: 40 },
+                { header: 'Variation', key: 'variation', width: 16 },
+                { header: 'Qty Req\'d', key: 'qty', width: 9 },
+                { header: 'Unit Cost', key: 'unit_cost', width: 11 },
+                { header: 'Line Total', key: 'line_total', width: 11 },
+                { header: 'Supplier', key: 'supplier', width: 18 },
+                { header: 'Supplier Part #', key: 'supplier_pn', width: 18 },
+                { header: 'Mfr Part #', key: 'mfr_pn', width: 18 },
+                { header: 'Product Link', key: 'url', width: 40 }
+            ];
+            ws.columns = columns.map(c => ({ key: c.key, width: c.width }));
+            const lastCol = columns.length;
+
+            // Header block: logo top left, title to its right
+            ws.getRow(1).height = 62;
+            ws.getRow(2).height = 18;
+            try {
+                const resp = await fetch('KI6CR-Labs-horizontal.png');
+                const blob = await resp.blob();
+                const dataUrl = await new Promise(res => {
+                    const r = new FileReader();
+                    r.onload = () => res(r.result);
+                    r.readAsDataURL(blob);
+                });
+                const logoId = wb.addImage({ base64: dataUrl, extension: 'png' });
+                ws.addImage(logoId, { tl: { col: 0.2, row: 0.15 }, ext: { width: 231, height: 75 }, editAs: 'oneCell' });
+            } catch (e) {
+                // Export still works without the logo
+            }
+
+            ws.getCell('E1').value = 'Bill of Materials: ' + project.project_name;
+            ws.getCell('E1').font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF0F1C3F' } };
+            ws.getCell('E1').alignment = { vertical: 'bottom' };
+            ws.getCell('E2').value = `Exported ${new Date().toLocaleDateString()}, ${parts.length} part${parts.length === 1 ? '' : 's'}`;
+            ws.getCell('E2').font = { name: 'Arial', size: 10, color: { argb: 'FF6B7280' } };
+
+            const headerRow = ws.getRow(4);
+            columns.forEach((c, i) => { headerRow.getCell(i + 1).value = c.header; });
+            headerRow.height = 20;
+            headerRow.eachCell(cell => {
+                cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A56DB' } };
+                cell.alignment = { vertical: 'middle' };
             });
-            
-            // Create blob and download
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+            const thin = { style: 'thin', color: { argb: 'FFC7D9FB' } };
+            parts.forEach((part, i) => {
+                const isVariable = part.variation_attribute && part.variation_attribute !== '';
+                const row = ws.addRow({
+                    row: i + 1,
+                    part_number: part.part_number || '',
+                    part_name: part.part_name || '',
+                    description: part.description || '',
+                    variation: isVariable ? `${part.variation_attribute}: ${part.variation_value}` : 'Fixed',
+                    qty: Number(part.quantity_required || 0),
+                    unit_cost: Number(parseFloat(part.unit_cost || 0).toFixed(4)),
+                    line_total: Number(parseFloat(part.line_total || 0).toFixed(2)),
+                    supplier: part.preferred_supplier || 'No preferred supplier',
+                    supplier_pn: part.preferred_supplier_pn || '',
+                    mfr_pn: part.preferred_mfr_pn || '',
+                    url: part.preferred_url ? { text: part.preferred_url, hyperlink: part.preferred_url } : ''
+                });
+                row.eachCell({ includeEmpty: true }, (cell, col) => {
+                    if (col > lastCol) return;
+                    cell.font = { name: 'Arial', size: 10 };
+                    cell.border = { bottom: thin };
+                    cell.alignment = { vertical: 'top', wrapText: col === 3 || col === 4 };
+                    if (i % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF4F8FF' } };
+                });
+                row.getCell('row').alignment = { vertical: 'top', horizontal: 'center' };
+                row.getCell('qty').alignment = { vertical: 'top', horizontal: 'center' };
+                row.getCell('unit_cost').numFmt = '$#,##0.0000';
+                row.getCell('line_total').numFmt = '$#,##0.00';
+                if (part.preferred_url) row.getCell('url').font = { name: 'Arial', size: 10, color: { argb: 'FF1A56DB' }, underline: true };
+            });
+
+            // Summary rows
+            ws.addRow([]);
+            const addSummary = (label, value) => {
+                const r = ws.addRow([]);
+                r.getCell(7).value = label;
+                r.getCell(7).alignment = { horizontal: 'right' };
+                r.getCell(7).font = { name: 'Arial', size: 10, bold: true };
+                r.getCell(8).value = Number(parseFloat(value || 0).toFixed(2));
+                r.getCell(8).numFmt = '$#,##0.00';
+                r.getCell(8).font = { name: 'Arial', size: 10, bold: true };
+            };
+            addSummary('Fixed Parts BOM Cost:', project.fixed_bom_cost ?? project.total_bom_cost ?? 0);
+            (project.variation_costs || []).forEach(vc => addSummary(`Kit Cost, ${vc.label}:`, vc.cost));
+
+            const buffer = await wb.xlsx.writeBuffer();
+            const fileBlob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            
+            const url = URL.createObjectURL(fileBlob);
+
             // Clean project name for filename
             const projectName = project.project_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-            const filename = `BOM_${projectName}_${new Date().toISOString().split('T')[0]}.csv`;
-            
+            const filename = `BOM_${projectName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
             link.setAttribute('href', url);
             link.setAttribute('download', filename);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
 
         function addFixedPartToProject(projectId) {
@@ -3259,10 +4051,73 @@
             if (dl) dl.innerHTML = variationValueOptionsFor(attrVal).map(v => `<option value="${escHtml(v)}">`).join('');
         }
 
+        // WooCommerce's own variation attributes/options for a project, so variable BOM
+        // parts are picked from a list instead of typed (a typo there silently breaks
+        // inventory deduction for that variation). Cached per project for the session.
+        const wcVariationSetupCache = {};
+        async function loadWcVariationSetup(projectId, fresh) {
+            if (!fresh && wcVariationSetupCache[projectId]) return wcVariationSetupCache[projectId];
+            let setup;
+            try {
+                const resp = await fetch(`api.php?action=get_wc_variation_setup&project_id=${projectId}`);
+                setup = await resp.json();
+            } catch (e) {
+                setup = { linked: true, reachable: false };
+            }
+            setup.usable = !!(setup.linked && setup.reachable && setup.attributes && Object.keys(setup.attributes).length);
+            if (setup.usable) wcVariationSetupCache[projectId] = setup;
+            return setup;
+        }
+
+        function wcSetupNotice(setup) {
+            if (setup.usable) {
+                return `<div style="font-size:0.82em;color:var(--text-secondary);background:var(--bg-card-header);border:1px solid var(--border-card);border-radius:var(--radius-md);padding:8px 10px;margin-bottom:1rem;">
+                    Options come from the WooCommerce product <b>${escHtml(setup.product_name)}</b>, so they always match what customers order.</div>`;
+            }
+            const msg = !setup.linked
+                ? 'This project isn\'t linked to a WooCommerce product yet. Add its WooCommerce Product ID under Edit Project to pick variations from a list.'
+                : (setup.reachable && setup.attributes
+                    ? 'The linked WooCommerce product has no variation attributes. Type the names exactly as they\'ll appear in WooCommerce.'
+                    : 'Couldn\'t reach WooCommerce right now. Type the attribute and value exactly as they appear in WooCommerce.');
+            return `<div style="font-size:0.82em;color:#92400e;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.35);border-radius:var(--radius-md);padding:8px 10px;margin-bottom:1rem;">${msg}</div>`;
+        }
+
+        // How many BOM parts each variation value already has, e.g. {"Color": {"Blue": 2}}
+        function bomVariationCounts() {
+            const counts = {};
+            (window.currentProjectData?.parts || []).forEach(p => {
+                if (!p.variation_attribute) return;
+                counts[p.variation_attribute] = counts[p.variation_attribute] || {};
+                counts[p.variation_attribute][p.variation_value] = (counts[p.variation_attribute][p.variation_value] || 0) + 1;
+            });
+            return counts;
+        }
+
+        function renderVarValueChecks(setup) {
+            const attr = document.getElementById('varAttrName').value;
+            const box = document.getElementById('varValueChecks');
+            const counts = bomVariationCounts()[attr] || {};
+            const options = setup.attributes[attr] || [];
+            const alias = (setup.aliases || {})[attr] || {};
+            box.innerHTML = options.length ? `
+                ${options.length > 1 ? `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--bg-light);font-size:0.82em;color:var(--text-secondary);cursor:pointer;">
+                    <input type="checkbox" onchange="document.querySelectorAll('#varValueChecks input[name=varValue]').forEach(c => c.checked = this.checked)"> All ${options.length} options</label>` : ''}
+                ${options.map(o => {
+                    const saved = alias[o] || o;
+                    const n = counts[saved] || 0;
+                    return `<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;">
+                    <input type="checkbox" name="varValue" value="${escHtml(saved)}" ${options.length === 1 ? 'checked' : ''}>
+                    <span style="flex:1;">${escHtml(o)}${alias[o] ? `<span style="display:block;font-size:0.76em;color:var(--text-dim);">saved in the BOM as "${escHtml(alias[o])}"</span>` : ''}</span>
+                    <span style="font-size:0.78em;color:${n ? 'var(--text-secondary)' : 'var(--warning)'};">${n ? `${n} part${n === 1 ? '' : 's'} so far` : 'no parts yet'}</span>
+                </label>`;
+                }).join('')}`
+                : '<div style="padding:8px 10px;color:var(--text-dim);">No options on this attribute in WooCommerce.</div>';
+        }
+
         async function addVariablePartToProject(projectId) {
             const ensureParts = parts.length === 0 ? loadParts() : Promise.resolve();
-            await Promise.all([ensureParts, ensureVariationOptionsLoaded()]);
-            openAddVariablePartModal(projectId);
+            const [, , setup] = await Promise.all([ensureParts, ensureVariationOptionsLoaded(), loadWcVariationSetup(projectId, true)]);
+            openAddVariablePartModal(projectId, setup);
         }
 
         function openAddFixedPartModal(projectId) {
@@ -3329,15 +4184,46 @@
             });
         }
 
-        function openAddVariablePartModal(projectId) {
+        function openAddVariablePartModal(projectId, setup = { usable: false }) {
             const existingAttrs = Object.keys(variationAttrOptions).sort();
+            const wcAttrs = setup.usable ? Object.keys(setup.attributes) : [];
+
+            const variationFields = setup.usable ? `
+                <div class="form-group">
+                    <label class="form-label">Variation Attribute</label>
+                    <select id="varAttrName" class="form-select" required>
+                        ${wcAttrs.map(a => `<option value="${escHtml(a)}">${escHtml(a)}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Which options use this part? <span style="color:var(--text-dim);font-weight:400;">(pick one or more)</span></label>
+                    <div id="varValueChecks" style="border:1px solid var(--border-card);border-radius:var(--radius-md);background:var(--bg-card);max-height:240px;overflow-y:auto;"></div>
+                </div>` : `
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+                    <div class="form-group">
+                        <label class="form-label">Attribute Name</label>
+                        <input type="text" id="varAttrName" class="form-input" placeholder="e.g. Connector" list="attrNameList" required
+                            oninput="refreshVarValueDatalist('varAttrName','attrValueList')">
+                        <datalist id="attrNameList">
+                            ${existingAttrs.map(a => `<option value="${escHtml(a)}">`).join('')}
+                        </datalist>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Attribute Value</label>
+                        <input type="text" id="varAttrValue" class="form-input" placeholder="e.g. Male pigtail" list="attrValueList" required>
+                        <datalist id="attrValueList">
+                            ${variationValueOptionsFor('').map(v => `<option value="${escHtml(v)}">`).join('')}
+                        </datalist>
+                    </div>
+                </div>`;
 
             const modal = createModal(
                 'Add Variable Part to BOM',
                 `
-                    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9em;">
-                        Variable parts differ per product variation. Each attribute name (e.g. "Connector") can have multiple options, one part per option value (e.g. "Male", "Female").
+                    <p style="color: var(--text-secondary); margin-bottom: 0.75rem; font-size: 0.9em;">
+                        Variable parts are only used by certain product options, e.g. the blue cable only goes in Blue orders.
                     </p>
+                    ${wcSetupNotice(setup)}
                     <form id="addVarPartForm">
                         <div class="form-group">
                             <label class="form-label">Select Part</label>
@@ -3346,23 +4232,7 @@
                                 ${parts.map(p => `<option value="${p.id}">${p.part_number} - ${p.part_name}</option>`).join('')}
                             </select>
                         </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
-                            <div class="form-group">
-                                <label class="form-label">Attribute Name</label>
-                                <input type="text" id="varAttrName" class="form-input" placeholder="e.g. Connector" list="attrNameList" required
-                                    oninput="refreshVarValueDatalist('varAttrName','attrValueList')">
-                                <datalist id="attrNameList">
-                                    ${existingAttrs.map(a => `<option value="${escHtml(a)}">`).join('')}
-                                </datalist>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Attribute Value</label>
-                                <input type="text" id="varAttrValue" class="form-input" placeholder="e.g. Male pigtail" list="attrValueList" required>
-                                <datalist id="attrValueList">
-                                    ${variationValueOptionsFor('').map(v => `<option value="${escHtml(v)}">`).join('')}
-                                </datalist>
-                            </div>
-                        </div>
+                        ${variationFields}
                         <div class="form-group">
                             <label class="form-label">Quantity Required per Kit</label>
                             <input type="number" id="varPartQty" class="form-input" min="1" value="1" required>
@@ -3379,30 +4249,47 @@
                 `
             );
 
+            if (setup.usable) {
+                const attrSel = document.getElementById('varAttrName');
+                attrSel.addEventListener('change', () => renderVarValueChecks(setup));
+                renderVarValueChecks(setup);
+            }
+
             document.getElementById('addVarPartForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const formData = new FormData();
-                formData.append('action', 'add_project_part');
-                formData.append('project_id', projectId);
-                formData.append('part_id', document.getElementById('varPartSelect').value);
-                formData.append('quantity_required', document.getElementById('varPartQty').value);
-                formData.append('cost_override', document.getElementById('varPartCostOverride').value);
-                formData.append('variation_attribute', document.getElementById('varAttrName').value.trim());
-                formData.append('variation_value', document.getElementById('varAttrValue').value.trim());
+                const attr = document.getElementById('varAttrName').value.trim();
+                const values = setup.usable
+                    ? [...document.querySelectorAll('#varValueChecks input[name=varValue]:checked')].map(c => c.value)
+                    : [document.getElementById('varAttrValue').value.trim()];
+                if (!values.length) { alert('Pick at least one option that uses this part.'); return; }
 
+                const submitBtn = e.target.querySelector('button[type=submit]');
+                submitBtn.disabled = true;
                 try {
-                    await fetch('api.php', { method: 'POST', body: formData });
+                    // One BOM row per option, so each option deducts this part on its own
+                    for (const value of values) {
+                        const formData = new FormData();
+                        formData.append('action', 'add_project_part');
+                        formData.append('project_id', projectId);
+                        formData.append('part_id', document.getElementById('varPartSelect').value);
+                        formData.append('quantity_required', document.getElementById('varPartQty').value);
+                        formData.append('cost_override', document.getElementById('varPartCostOverride').value);
+                        formData.append('variation_attribute', attr);
+                        formData.append('variation_value', value);
+                        await fetch('api.php', { method: 'POST', body: formData });
+                    }
                     modal.remove();
                     document.querySelector('.modal.active')?.remove();
                     viewProject(projectId);
                     refreshDashboardIfVisible();
                 } catch (error) {
+                    submitBtn.disabled = false;
                     alert('Error adding variable part');
                 }
             });
         }
 
-        function editProjectPart(btn) {
+        async function editProjectPart(btn) {
             const projectId   = btn.dataset.projectId;
             const partId      = btn.dataset.partId;
             const currentQty  = btn.dataset.qty;
@@ -3412,7 +4299,30 @@
             const currentOverride = btn.dataset.costOverride || '';
             const autoCost = parseFloat(btn.dataset.autoCost || '0');
 
-            const variationFields = isVariable ? `
+            const setup = isVariable ? await loadWcVariationSetup(projectId) : { usable: false };
+            // Keep the current value selectable even if WooCommerce no longer has it, flagged so it stands out
+            const wcOptionList = (opts, current, alias = {}) => {
+                const vals = opts.map(o => alias[o] || o);
+                const list = opts.map((o, i) => `<option value="${escHtml(vals[i])}" ${vals[i] === current ? 'selected' : ''}>${escHtml(o)}</option>`).join('');
+                return vals.includes(current) || !current ? list
+                    : `<option value="${escHtml(current)}" selected>${escHtml(current)} (not in WooCommerce)</option>` + list;
+            };
+            const aliasFor = attr => ((setup.aliases || {})[attr]) || {};
+            const variationFields = isVariable && setup.usable ? `
+                ${wcSetupNotice(setup)}
+                <div class="form-group">
+                    <label class="form-label">Variation Attribute</label>
+                    <select id="editPartAttr" class="form-select" required>
+                        ${wcOptionList(Object.keys(setup.attributes), currentAttr)}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Variation Option</label>
+                    <select id="editPartVal" class="form-select" required>
+                        ${wcOptionList(setup.attributes[currentAttr] || [], currentVal, aliasFor(currentAttr))}
+                    </select>
+                </div>` : isVariable ? `
+                ${wcSetupNotice(setup)}
                 <div class="form-group">
                     <label class="form-label">Variation Attribute <span style="color:var(--text-dim);font-weight:400;">(e.g. "Connector")</span></label>
                     <input type="text" id="editPartAttr" class="form-input" value="${currentAttr.replace(/"/g,'&quot;')}" list="editAttrNameList" required
@@ -3447,6 +4357,12 @@
                     </div>
                 </form>`
             );
+
+            if (isVariable && setup.usable) {
+                document.getElementById('editPartAttr').addEventListener('change', e => {
+                    document.getElementById('editPartVal').innerHTML = wcOptionList(setup.attributes[e.target.value] || [], '', aliasFor(e.target.value));
+                });
+            }
 
             document.getElementById('editPartQtyForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -5241,6 +6157,12 @@
                 // Update inventory metrics
                 document.getElementById('metricInventoryCost').textContent = '$' + (businessMetrics.inventory?.cost || 0).toLocaleString();
                 document.getElementById('metricUnrealizedRevenue').textContent = '$' + (businessMetrics.inventory?.unrealized_revenue || 0).toLocaleString();
+                const ubRows = (businessMetrics.inventory?.unrealized_breakdown || []).filter(r => r.buildable > 0 || r.value > 0).sort((a, b) => b.value - a.value);
+                document.getElementById('metricUnrealizedBreakdown').innerHTML = ubRows.length ? `
+                    <table style="width:100%;border-collapse:collapse;">
+                        <tr style="color:var(--text-secondary);text-align:left;"><th style="padding:3px 0;">Project</th><th style="text-align:right;">Buildable</th><th style="text-align:right;">Price</th><th style="text-align:right;">Value</th></tr>
+                        ${ubRows.map(r => `<tr style="border-top:1px solid var(--border-card);"><td style="padding:3px 0;">${escHtml(r.name)}</td><td style="text-align:right;font-family:var(--font-mono);">${r.buildable}</td><td style="text-align:right;font-family:var(--font-mono);">$${r.retail_price.toLocaleString()}</td><td style="text-align:right;font-family:var(--font-mono);">$${r.value.toLocaleString()}</td></tr>`).join('')}
+                    </table>` : '';
                 
                 // Update order metrics
                 document.getElementById('metricOrderCount').textContent = businessMetrics.orders?.count || 0;

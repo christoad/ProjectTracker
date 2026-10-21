@@ -165,8 +165,10 @@ try {
     // logic as wc_calculate_available_qty / wc_calculate_variation_qty) * retail
     // price. Summing each BOM part's stock independently instead massively
     // overstates this, since a kit with N parts would get counted ~N times over.
-    $activeProjects = $db->query("SELECT id, retail_price FROM projects WHERE status = 'active'")->fetchAll();
+    // Replacement-parts projects are excluded: they're contact-only singles, not kits.
+    $activeProjects = $db->query("SELECT id, project_name, retail_price FROM projects WHERE status = 'active' AND project_name NOT LIKE '%Replacement Parts%' ORDER BY project_name")->fetchAll();
     $unrealizedRevenue = 0;
+    $unrealizedBreakdown = [];
     foreach ($activeProjects as $proj) {
         $stmt = $db->prepare("
             SELECT DISTINCT variation_attribute, variation_value
@@ -200,6 +202,13 @@ try {
         }
 
         $unrealizedRevenue += $buildable * $proj['retail_price'];
+        $unrealizedBreakdown[] = [
+            'project_id' => (int)$proj['id'],
+            'name' => $proj['project_name'],
+            'buildable' => (int)$buildable,
+            'retail_price' => (float)$proj['retail_price'],
+            'value' => round($buildable * $proj['retail_price'], 2)
+        ];
     }
     
     // 3. ORDERS - REVENUE (sum of line items actually sold)
@@ -349,7 +358,8 @@ try {
         'period' => $year,
         'inventory' => [
             'cost' => round($inventoryCost, 2),
-            'unrealized_revenue' => round($unrealizedRevenue, 2)
+            'unrealized_revenue' => round($unrealizedRevenue, 2),
+            'unrealized_breakdown' => $unrealizedBreakdown
         ],
         'orders' => [
             'count' => $orderCount,

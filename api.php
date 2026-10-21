@@ -21,6 +21,7 @@ if ($action === 'login') {
     $user = $stmt->fetch();
     
     if ($user && password_verify($password, $user['password_hash'])) {
+        session_regenerate_id(true);
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['username'] = $user['username'];
         
@@ -65,25 +66,14 @@ if ($action === 'get_dashboard') {
     $stats = [
         'total_projects' => $db->query("SELECT COUNT(*) FROM projects WHERE status = 'active'")->fetchColumn(),
         'total_parts' => $db->query("SELECT COUNT(*) FROM parts")->fetchColumn(),
-        'low_stock_count' => $db->query("
-            SELECT COUNT(*) FROM parts p
-            WHERE p.current_stock <= p.min_stock_level
-              AND EXISTS (
-                  SELECT 1 FROM project_parts pp
-                  JOIN projects proj ON proj.id = pp.project_id
-                  WHERE pp.part_id = p.id AND proj.status = 'active'
-              )
-        ")->fetchColumn(),
         'pending_orders' => $db->query("SELECT COUNT(*) FROM orders WHERE status = 'pending'")->fetchColumn(),
-        'low_stock_parts' => $db->query("
-            SELECT * FROM parts p
-            WHERE p.current_stock <= p.min_stock_level
-              AND EXISTS (
-                  SELECT 1 FROM project_parts pp
-                  JOIN projects proj ON proj.id = pp.project_id
-                  WHERE pp.part_id = p.id AND proj.status = 'active'
-              )
-            ORDER BY p.current_stock ASC LIMIT 10
+        // Supplier orders placed but not yet received (every part, not just active BOMs)
+        'parts_on_order' => $db->query("
+            SELECT ic.id, ic.part_id, p.part_number, p.part_name, ic.quantity, ic.total_cost,
+                   ic.supplier_name, ic.purchase_date
+            FROM inventory_checkins ic JOIN parts p ON p.id = ic.part_id
+            WHERE ic.received = 0
+            ORDER BY ic.purchase_date ASC, ic.id ASC
         ")->fetchAll(),
         'recent_orders' => $db->query("
             SELECT o.*,
@@ -214,6 +204,227 @@ if ($action === 'get_dashboard') {
 
     $stats['bottleneck_insights'] = $bottleneck_insights;
     jsonResponse($stats);
+}
+
+// Reorder Forecast (dashboard): everything the browser needs to project when each
+// part runs out and when to reorder it. The forecast math itself runs client side
+// so the demand window / safety buffer / coverage controls update instantly.
+//  - Demand: every non-cancelled order line (and promo giveaway) in the last 180 days,
+//    exploded through the BOM exactly like inventory deduction does (fixed parts always,
+//    variable parts only when the item's combo_key matches), bucketed by day.
+//  - Lead time: measured per part from received checkins (same rules as the part
+//    detail Delivery Time chart), falling back to that supplier's average, then a default.
+//  - Inbound: pending (received = 0) checkins with an ETA from the lead time.
+if ($action === 'get_reorder_forecast') {
+    require_once 'woocommerce_sync.php';
+    $HISTORY_DAYS = 180;
+    $DEFAULT_LEAD = 14;
+    $today = new DateTimeImmutable('today');
+
+    // Only parts that belong to an active project's BOM (plus the one-per-order sticker)
+    $partRows = $db->query("
+        SELECT p.id, p.part_number, p.part_name, p.category, p.current_stock, p.min_stock_level,
+               p.weighted_avg_cost,
+               (SELECT supplier_name FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) AS preferred_supplier,
+               (SELECT supplier_part_number FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) AS preferred_supplier_pn,
+               (SELECT url FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) AS preferred_url,
+               (SELECT cost FROM part_sources ps WHERE ps.part_id = p.id AND ps.is_preferred = 1 LIMIT 1) AS preferred_cost,
+               (SELECT MIN(cost) FROM part_sources ps WHERE ps.part_id = p.id) AS lowest_cost
+        FROM parts p
+        WHERE p.part_number = 'PKG-007'
+           OR EXISTS (SELECT 1 FROM project_parts pp JOIN projects proj ON proj.id = pp.project_id
+                      WHERE pp.part_id = p.id AND proj.status = 'active')
+    ")->fetchAll();
+
+    $parts = [];
+    foreach ($partRows as $r) {
+        // What you've actually paid per unit first; supplier list prices can be per pack
+        $unit = (float) $r['weighted_avg_cost'] ?: (float) ($r['preferred_cost'] ?? 0) ?: (float) ($r['lowest_cost'] ?? 0);
+        $parts[(int) $r['id']] = [
+            'id'            => (int) $r['id'],
+            'part_number'   => $r['part_number'],
+            'part_name'     => $r['part_name'],
+            'category'      => $r['category'],
+            'current_stock' => (int) $r['current_stock'],
+            'min_stock'     => (int) $r['min_stock_level'],
+            'unit_cost'     => round($unit, 4),
+            'supplier'      => $r['preferred_supplier'] ?: null,
+            'supplier_pn'   => $r['preferred_supplier_pn'] ?: null,
+            'url'           => $r['preferred_url'] ?: null,
+            'projects'      => [],
+            'usage'         => [],   // day offset (0 = today) => units consumed
+            'lead_time'     => null,
+            'pending'       => [],
+        ];
+    }
+
+    // BOM rows for active projects, grouped by project
+    $bom = [];
+    foreach ($db->query("
+        SELECT pp.project_id, proj.project_name, pp.part_id, pp.quantity_required,
+               pp.variation_attribute, pp.variation_value
+        FROM project_parts pp JOIN projects proj ON proj.id = pp.project_id
+        WHERE proj.status = 'active' AND pp.quantity_required > 0
+    ")->fetchAll() as $b) {
+        $bom[(int) $b['project_id']][] = $b;
+        $pid = (int) $b['part_id'];
+        if (isset($parts[$pid]) && !in_array($b['project_name'], $parts[$pid]['projects'], true)) {
+            $parts[$pid]['projects'][] = $b['project_name'];
+        }
+    }
+
+    $addUsage = function ($projectId, $comboKey, $qty, $dateStr) use (&$parts, $bom, $today, $HISTORY_DAYS) {
+        if (empty($bom[$projectId]) || !$dateStr) return;
+        $offset = (int) $today->diff(new DateTimeImmutable(substr($dateStr, 0, 10)))->format('%r%a') * -1;
+        if ($offset < 0 || $offset >= $HISTORY_DAYS) return;
+        $combo = wc_parse_combo_key((string) $comboKey);
+        foreach ($bom[$projectId] as $b) {
+            $attr = $b['variation_attribute'];
+            if ($attr !== '' && $attr !== null && (($combo[$attr] ?? null) !== $b['variation_value'])) continue;
+            $pid = (int) $b['part_id'];
+            if (!isset($parts[$pid])) continue;
+            $parts[$pid]['usage'][$offset] = ($parts[$pid]['usage'][$offset] ?? 0) + $qty * (int) $b['quantity_required'];
+        }
+    };
+
+    $since = $today->modify("-{$HISTORY_DAYS} days")->format('Y-m-d');
+    $stmt = $db->prepare("
+        SELECT oi.project_id, oi.variation_combo_key, oi.quantity, o.order_date
+        FROM order_items oi JOIN orders o ON o.id = oi.order_id
+        WHERE o.status NOT IN ('cancelled', 'refunded') AND o.order_date >= ?
+    ");
+    $stmt->execute([$since]);
+    foreach ($stmt->fetchAll() as $it) {
+        $addUsage((int) $it['project_id'], $it['variation_combo_key'], (int) $it['quantity'], $it['order_date']);
+    }
+    $stmt = $db->prepare("SELECT project_id, variation_combo_key, quantity, created_at FROM promo_giveaways WHERE created_at >= ?");
+    $stmt->execute([$since]);
+    foreach ($stmt->fetchAll() as $g) {
+        $addUsage((int) $g['project_id'], $g['variation_combo_key'], (int) $g['quantity'], $g['created_at']);
+    }
+
+    // Orders per day (for planned spikes: extra orders x each part's units per order)
+    $orderUsage = [];
+    $stmt = $db->prepare("SELECT order_date FROM orders WHERE status NOT IN ('cancelled', 'refunded') AND order_date >= ?");
+    $stmt->execute([$since]);
+    $orderDates = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($orderDates as $d) {
+        $offset = (int) $today->diff(new DateTimeImmutable(substr($d, 0, 10)))->format('%r%a') * -1;
+        if ($offset >= 0 && $offset < $HISTORY_DAYS) $orderUsage[$offset] = ($orderUsage[$offset] ?? 0) + 1;
+    }
+
+    // Sticker: exactly one per order, not on any BOM
+    foreach ($parts as &$p) {
+        if ($p['part_number'] !== 'PKG-007') continue;
+        $p['projects'] = ['Every order (1 each)'];
+        $p['usage'] = $orderUsage;
+    }
+    unset($p);
+
+    // Supplier names are typed by hand ("JLC", "jLC PCB", "AliXpress"...), so group loosely
+    $normSupplier = function ($name) {
+        $n = preg_replace('/[^a-z0-9]/', '', strtolower((string) $name));
+        if ($n === '') return '';
+        if (strpos($n, 'jlc3dp') === 0) return 'jlc3dp';
+        if (strpos($n, 'jlc') === 0 || strpos($n, 'jcl') === 0) return 'jlcpcb';
+        if (strpos($n, 'ali') === 0 || strpos($n, 'aliexpress') !== false) return 'aliexpress';
+        if (strpos($n, 'mcmaster') === 0) return 'mcmaster';
+        return $n;
+    };
+
+    // Delivery history
+    $partSamples = [];
+    $supplierSamples = [];
+    foreach ($db->query("
+        SELECT id, part_id, quantity, supplier_name, purchase_date, received, received_at, created_at
+        FROM inventory_checkins ORDER BY purchase_date ASC
+    ")->fetchAll() as $c) {
+        $pid = (int) $c['part_id'];
+        if ((int) $c['received'] === 1) {
+            if (!$c['received_at'] || !$c['purchase_date']) continue;
+            $raw = (int) (new DateTimeImmutable($c['purchase_date']))->diff(new DateTimeImmutable(substr($c['received_at'], 0, 10)))->format('%r%a');
+            // Logged as already on hand, not a tracked delivery (matches renderLeadTimeSection)
+            if ($c['created_at'] && $c['received_at'] === $c['created_at'] && $raw <= 0) continue;
+            $days = max(0, $raw);
+            $partSamples[$pid][] = $days;
+            $key = $normSupplier($c['supplier_name']);
+            if ($key !== '') $supplierSamples[$key][] = $days;
+        } elseif (isset($parts[$pid])) {
+            $parts[$pid]['pending'][] = [
+                'id'            => (int) $c['id'],
+                'quantity'      => (int) $c['quantity'],
+                'purchase_date' => $c['purchase_date'],
+                'supplier'      => $c['supplier_name'],
+            ];
+        }
+    }
+
+    $avg = fn($a) => array_sum($a) / count($a);
+    foreach ($parts as &$p) {
+        $samples = $partSamples[$p['id']] ?? [];
+        $supKey = $normSupplier($p['supplier']);
+        if (!$samples && $supKey === '' && $p['pending']) $supKey = $normSupplier($p['pending'][0]['supplier']);
+        if ($samples) {
+            // Recent deliveries say more about today's lead time than old ones
+            $recent = array_slice($samples, -5);
+            $p['lead_time'] = ['days' => round($avg($recent), 1), 'samples' => count($samples),
+                               'source' => 'part', 'min' => min($samples), 'max' => max($samples)];
+        } elseif ($supKey !== '' && !empty($supplierSamples[$supKey])) {
+            $s = $supplierSamples[$supKey];
+            $p['lead_time'] = ['days' => round($avg(array_slice($s, -10)), 1), 'samples' => count($s),
+                               'source' => 'supplier', 'min' => min($s), 'max' => max($s)];
+        } else {
+            $p['lead_time'] = ['days' => $DEFAULT_LEAD, 'samples' => 0, 'source' => 'default', 'min' => null, 'max' => null];
+        }
+        $p['usage'] = (object) $p['usage'];
+    }
+    unset($p);
+
+    // Planned spikes (podcast airings, reviews...). Recent past ones are included too so
+    // their spike days can be left out of the baseline sales pace.
+    $events = [];
+    try {
+        $stmt = $db->prepare("SELECT id, name, event_date, extra_orders, spread_days, note FROM demand_events WHERE event_date >= ? ORDER BY event_date");
+        $stmt->execute([$since]);
+        $events = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        // demand_events table not migrated yet
+    }
+
+    jsonResponse([
+        'today'        => $today->format('Y-m-d'),
+        'history_days' => $HISTORY_DAYS,
+        'orders_usage' => (object) $orderUsage,
+        'events'       => $events,
+        'parts'        => array_values($parts),
+    ]);
+}
+
+// Planned demand spikes for the Reorder Forecast
+if ($action === 'save_demand_event') {
+    $id     = (int) ($_POST['id'] ?? 0);
+    $name   = trim($_POST['name'] ?? '');
+    $date   = trim($_POST['event_date'] ?? '');
+    $extra  = (int) ($_POST['extra_orders'] ?? 0);
+    $spread = max(1, min(90, (int) ($_POST['spread_days'] ?? 14)));
+    $note   = trim($_POST['note'] ?? '');
+    if ($name === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $extra <= 0) {
+        jsonResponse(['error' => 'Name, date, and a positive number of extra orders are required'], 400);
+    }
+    if ($id) {
+        $db->prepare("UPDATE demand_events SET name = ?, event_date = ?, extra_orders = ?, spread_days = ?, note = ? WHERE id = ?")
+           ->execute([$name, $date, $extra, $spread, $note !== '' ? $note : null, $id]);
+    } else {
+        $db->prepare("INSERT INTO demand_events (name, event_date, extra_orders, spread_days, note) VALUES (?, ?, ?, ?, ?)")
+           ->execute([$name, $date, $extra, $spread, $note !== '' ? $note : null]);
+        $id = (int) $db->lastInsertId();
+    }
+    jsonResponse(['success' => true, 'id' => $id]);
+}
+
+if ($action === 'delete_demand_event') {
+    $db->prepare("DELETE FROM demand_events WHERE id = ?")->execute([(int) ($_POST['id'] ?? 0)]);
+    jsonResponse(['success' => true]);
 }
 
 // Projects
@@ -1026,7 +1237,13 @@ if ($action === 'add_project_part') {
         ON DUPLICATE KEY UPDATE quantity_required = ?, notes = ?, cost_override = ?
     ");
     $stmt->execute([$project_id, $part_id, $quantity, $notes, $cost_override, $variation_attribute, $variation_value, $sort_order, $quantity, $notes, $cost_override]);
-    jsonResponse(['success' => true]);
+
+    $autolink = null;
+    if ($variation_attribute !== '') {
+        require_once 'woocommerce_sync.php';
+        $autolink = wc_autolink_variation_mappings($db, (int) $project_id);
+    }
+    jsonResponse(['success' => true, 'autolink' => $autolink]);
 }
 
 if ($action === 'reorder_bom') {
@@ -1059,6 +1276,13 @@ if ($action === 'update_project_part') {
         $val  = trim($_POST['variation_value'] ?? '');
         $stmt = $db->prepare("UPDATE project_parts SET variation_attribute = ?, variation_value = ? WHERE id = ?");
         $stmt->execute([$attr ?: null, $val ?: null, $id]);
+
+        if ($attr !== '') {
+            require_once 'woocommerce_sync.php';
+            $stmt = $db->prepare("SELECT project_id FROM project_parts WHERE id = ?");
+            $stmt->execute([$id]);
+            wc_autolink_variation_mappings($db, (int) $stmt->fetchColumn());
+        }
     }
 
     jsonResponse(['success' => true]);
@@ -1069,6 +1293,44 @@ if ($action === 'delete_project_part') {
     $stmt = $db->prepare("DELETE FROM project_parts WHERE id = ?");
     $stmt->execute([$id]);
     jsonResponse(['success' => true]);
+}
+
+// The project's variation attributes/options exactly as defined on its WooCommerce
+// product, plus which values the BOM already uses, for the variable part pickers.
+if ($action === 'get_wc_variation_setup') {
+    require_once 'woocommerce_sync.php';
+    $project_id = (int) ($_GET['project_id'] ?? 0);
+    $stmt = $db->prepare("SELECT woocommerce_product_id FROM projects WHERE id = ?");
+    $stmt->execute([$project_id]);
+    $wc_product_id = (int) $stmt->fetchColumn();
+    if (!$wc_product_id) jsonResponse(['linked' => false]);
+
+    $setup = wc_fetch_variation_setup($wc_product_id);
+    if (!$setup) jsonResponse(['linked' => true, 'reachable' => false]);
+
+    // Where an existing variation mapping links a WC variation to a BOM value with a
+    // different name (e.g. WC "3.5mm Female (5-Pack)" vs BOM "3.5mm Female"), new parts
+    // must keep using the BOM name, or the option splits in two and deduction breaks.
+    $aliases = [];
+    $byId = [];
+    foreach ($setup['variations'] as $v) $byId[$v['id']] = $v['attributes'];
+    $stmt = $db->prepare("SELECT combo_key, wc_variation_id FROM project_variation_mappings WHERE project_id = ? AND wc_variation_id > 0");
+    $stmt->execute([$project_id]);
+    foreach ($stmt->fetchAll() as $m) {
+        $wcAttrs = $byId[(int) $m['wc_variation_id']] ?? null;
+        if (!$wcAttrs) continue;
+        foreach (wc_parse_combo_key($m['combo_key']) as $attr => $bomVal) {
+            if (isset($wcAttrs[$attr]) && $wcAttrs[$attr] !== $bomVal) $aliases[$attr][$wcAttrs[$attr]] = $bomVal;
+        }
+    }
+
+    jsonResponse([
+        'linked'       => true,
+        'reachable'    => true,
+        'product_name' => $setup['product_name'],
+        'attributes'   => (object) $setup['attributes'],
+        'aliases'      => (object) $aliases,
+    ]);
 }
 
 // Distinct variation attribute names + their values used anywhere across all projects,

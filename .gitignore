@@ -3,3 +3,4 @@
 db_migrate.php
 CLAUDE.md
 vendor/
+.env.bak*

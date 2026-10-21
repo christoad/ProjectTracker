@@ -22,8 +22,8 @@ define('DB_CHARSET', 'utf8mb4');
 define('APP_NAME', 'KI6CR Inventory Manager');
 define('TIMEZONE', 'America/Los_Angeles'); // Adjust to your timezone
 
-// Session Configuration
-define('SESSION_LIFETIME', 86400); // 24 hours in seconds
+// Session Configuration: stay logged in for 30 days, renewed on every visit
+define('SESSION_LIFETIME', 30 * 86400);
 
 // Security Settings
 define('PASSWORD_SALT', 'change-this-to-random-string-' . md5(__DIR__)); // Change this!
@@ -31,9 +31,34 @@ define('PASSWORD_SALT', 'change-this-to-random-string-' . md5(__DIR__)); // Chan
 // Set timezone
 date_default_timezone_set(TIMEZONE);
 
-// Start session
+// Start session. PHP's defaults drop the login when the browser closes and purge it
+// after 24 idle minutes from the server's shared /tmp (which other sites also clean),
+// so sessions live in a private folder outside the web root with a 30-day lifetime.
 if (session_status() === PHP_SESSION_NONE) {
+    $_sessDir = dirname(__DIR__, 2) . '/.sessions/ki6cr-projects';
+    if (!is_dir($_sessDir)) @mkdir($_sessDir, 0700, true);
+    if (is_dir($_sessDir) && is_writable($_sessDir)) session_save_path($_sessDir);
+    ini_set('session.gc_maxlifetime', SESSION_LIFETIME);
+    $_sessSecure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    session_set_cookie_params([
+        'lifetime' => SESSION_LIFETIME,
+        'path'     => '/projects/',
+        'secure'   => $_sessSecure,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    session_name('KI6CR_INV');
     session_start();
+    // Sliding expiry: push the cookie's expiry out again on every request
+    if (isset($_SESSION['user_id']) && !headers_sent()) {
+        setcookie(session_name(), session_id(), [
+            'expires'  => time() + SESSION_LIFETIME,
+            'path'     => '/projects/',
+            'secure'   => $_sessSecure,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    }
 }
 
 /**
