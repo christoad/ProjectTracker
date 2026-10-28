@@ -48,7 +48,7 @@ requireLogin();
 
 // Projected unit cost for BOM/margin estimates: a true weighted average across stock
 // actually on hand (at its weighted_avg_cost) PLUS parts already on order but not yet
-// received (at their real ordered cost) — pending orders have a known, real cost even
+// received (at their real ordered cost), pending orders have a known, real cost even
 // though they haven't landed yet, so ignoring them understates near-term cost changes
 // (e.g. a supplier price increase reflected in the next shipment). Falls back to
 // supplier pricing only when there's no stock and nothing pending.
@@ -528,14 +528,14 @@ if ($action === 'get_project') {
             $part['line_total'] = $unit_cost * $part['quantity_required'];
 
             if (empty($part['variation_attribute'])) {
-                // Fixed part — counts toward shared BOM cost and constrains buildable count
+                // Fixed part, counts toward shared BOM cost and constrains buildable count
                 $fixed_bom_cost += $part['line_total'];
                 if ($part['quantity_required'] > 0) {
                     $buildable = floor($part['current_stock'] / $part['quantity_required']);
                     $min_buildable = min($min_buildable, $buildable);
                 }
             } else {
-                // Variable part — pool stock across all options of the same attribute.
+                // Variable part, pool stock across all options of the same attribute.
                 // Any option satisfies the requirement, so sum buildable counts across all values.
                 $attr = $part['variation_attribute'];
                 $val  = $part['variation_value'];
@@ -548,7 +548,7 @@ if ($action === 'get_project') {
         }
         unset($part);
 
-        // Each variation attribute group must be satisfiable — apply its pooled buildable as a constraint
+        // Each variation attribute group must be satisfiable, apply its pooled buildable as a constraint
         foreach ($variation_group_buildable as $attr => $group_buildable) {
             $min_buildable = min($min_buildable, $group_buildable);
         }
@@ -559,7 +559,7 @@ if ($action === 'get_project') {
 
         // Realistic per-kit cost for every variation combination (Cartesian product across
         // attributes) = fixed parts cost + that combo's specific option costs. Fixed-only BOM
-        // cost isn't realistic once a project has variations — every kit needs a variation part.
+        // cost isn't realistic once a project has variations, every kit needs a variation part.
         $combos = [[]];
         foreach ($variation_line_cost as $attr => $values) {
             $new_combos = [];
@@ -619,7 +619,7 @@ if ($action === 'get_project') {
             ];
         }
 
-        // Average all-in cost per kit across every variation combo — used for BOM cost / profit /
+        // Average all-in cost per kit across every variation combo, used for BOM cost / profit /
         // inventory value, since we don't know in advance which variation the next order needs.
         $avg_kit_cost = !empty($variation_costs)
             ? array_sum(array_column($variation_costs, 'cost')) / count($variation_costs)
@@ -633,7 +633,7 @@ if ($action === 'get_project') {
         $project['total_inventory_value'] = $avg_kit_cost * $min_buildable;
 
         // Calculate revenue and profit. When variations exist, average each variation's own
-        // real price/profit/margin — not a single shared price diffed against the averaged cost,
+        // real price/profit/margin, not a single shared price diffed against the averaged cost,
         // since that hides the fact that variations can be priced differently.
         if (!empty($variation_costs)) {
             $n = count($variation_costs);
@@ -758,7 +758,7 @@ if ($action === 'get_trashed_projects') {
     jsonResponse($projects);
 }
 
-// WooCommerce sync — proxied through api.php so browser content blockers
+// WooCommerce sync, proxied through api.php so browser content blockers
 // don't flag the woocommerce_webhook.php URL pattern.
 if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_stock', 'wc_pull_price'])) {
     require_once 'woocommerce_sync.php';
@@ -773,7 +773,7 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
         $projects = $stmt->fetchAll();
 
         // Pass 1: gather tracker-side data and every live WC lookup we'll need,
-        // but don't hit the network yet — fetch them all in one parallel batch below.
+        // but don't hit the network yet, fetch them all in one parallel batch below.
         $prepped  = [];
         $requests = [];
         foreach ($projects as $p) {
@@ -797,7 +797,7 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
 
                 $variations = [];
                 foreach ($mappings as $m) {
-                    // Pass combo_key as raw string — wc_calculate_variation_qty parses internally
+                    // Pass combo_key as raw string, wc_calculate_variation_qty parses internally
                     $tracker_qty = wc_calculate_variation_qty($db, $p['id'], $m['combo_key']);
                     $reqKey = 'v' . $p['id'] . '_' . $m['wc_variation_id'];
                     $requests[$reqKey] = ['product_id' => $wc_product_id, 'variation_id' => (int) $m['wc_variation_id']];
@@ -820,7 +820,7 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
                 ];
             } else {
                 // Simple product: the stock request below already hits the product
-                // endpoint, which also carries price — reuse it instead of a second call.
+                // endpoint, which also carries price, reuse it instead of a second call.
                 $tracker_qty = wc_calculate_available_qty($db, $p['id']);
                 $reqKey = 'p' . $p['id'];
                 $requests[$reqKey] = ['product_id' => $wc_product_id, 'variation_id' => null];
@@ -916,7 +916,7 @@ if (in_array($action, ['wc_status', 'wc_sync', 'wc_sync_all', 'wc_push_manual_st
             jsonResponse(['error' => 'Project is not mapped to a WooCommerce product'], 400);
         }
 
-        // Variable products leave the parent's own price blank — pull from the
+        // Variable products leave the parent's own price blank, pull from the
         // first mapped variation instead, same as the wc_status comparison does.
         $vstmt = $db->prepare("SELECT wc_variation_id FROM project_variation_mappings WHERE project_id = ? AND wc_variation_id IS NOT NULL LIMIT 1");
         $vstmt->execute([$project_id]);
@@ -998,7 +998,7 @@ if ($action === 'get_part') {
     }
 }
 
-// Manual stock adjustments — deduct (or add back) raw part quantity outside the normal
+// Manual stock adjustments, deduct (or add back) raw part quantity outside the normal
 // purchase check-in / project BOM flow. Used e.g. when raw parts are consumed directly
 // by a JLCPCB PCBA run and never return as usable stock for other projects.
 if ($action === 'save_inventory_adjustment') {
@@ -1029,7 +1029,7 @@ if ($action === 'save_inventory_adjustment') {
         $new_stock = (int)$part['current_stock'] + $quantity_change;
         if ($new_stock < 0) {
             $db->rollBack();
-            jsonResponse(['error' => "Cannot remove {$quantity} units — only {$part['current_stock']} in stock"], 400);
+            jsonResponse(['error' => "Cannot remove {$quantity} units, only {$part['current_stock']} in stock"], 400);
             exit;
         }
 
@@ -1072,7 +1072,7 @@ if ($action === 'delete_inventory_adjustment') {
         $reverted_stock = (int)$part['current_stock'] - (int)$adj['quantity_change'];
         if ($reverted_stock < 0) {
             $db->rollBack();
-            jsonResponse(['error' => 'Cannot delete — reverting would make stock negative'], 400);
+            jsonResponse(['error' => 'Cannot delete, reverting would make stock negative'], 400);
             exit;
         }
 
@@ -1263,7 +1263,7 @@ if ($action === 'update_project_part') {
     $stmt = $db->prepare("UPDATE project_parts SET quantity_required = ? WHERE id = ?");
     $stmt->execute([$quantity, $id]);
 
-    // Manual cost override — sent as empty string to clear it back to automatic
+    // Manual cost override, sent as empty string to clear it back to automatic
     if (isset($_POST['cost_override'])) {
         $cost_override = $_POST['cost_override'] !== '' ? (float)$_POST['cost_override'] : null;
         $stmt = $db->prepare("UPDATE project_parts SET cost_override = ? WHERE id = ?");
@@ -1466,7 +1466,7 @@ if ($action === 'save_variation_mapping') {
     jsonResponse(['success' => true]);
 }
 
-// Promo / Freebie Giveaways — deduct BOM inventory for kits given away, not sold
+// Promo / Freebie Giveaways, deduct BOM inventory for kits given away, not sold
 if ($action === 'save_promo') {
     require_once 'woocommerce_sync.php';
 
@@ -1559,7 +1559,7 @@ if ($action === 'delete_project_expense') {
     jsonResponse(['success' => true]);
 }
 
-// Business Expenses (store-wide overhead — not tied to a specific project)
+// Business Expenses (store-wide overhead, not tied to a specific project)
 if ($action === 'get_business_expenses') {
     $stmt = $db->query("SELECT * FROM business_expenses ORDER BY expense_date DESC, created_at DESC");
     jsonResponse($stmt->fetchAll());
@@ -1902,9 +1902,9 @@ if ($action === 'get_order') {
 }
 
 // Manual order entry (order_detail.php Save Changes, index.php New Order modal,
-// quick_order.php) — always a single line item; WooCommerce orders with
+// quick_order.php), always a single line item; WooCommerce orders with
 // multiple line items are captured by wc_upsert_order() in woocommerce_sync.php.
-// Manual/editable order entry — index.php "New Order" modal and order_detail.php
+// Manual/editable order entry, index.php "New Order" modal and order_detail.php
 // "Save Changes" both post here. `items` is a JSON array of
 // {id?, project_id, combo_key?, quantity, price} (price = line total, not unit
 // price). Items missing from the array on an update are removed (restoring any
@@ -1973,7 +1973,7 @@ if ($action === 'save_order') {
             $old_status = null;
         }
 
-        // KI6CR Labs Sticker: one per order regardless of line items/quantity — not a BOM part.
+        // KI6CR Labs Sticker: one per order regardless of line items/quantity, not a BOM part.
         if ($should_deduct && !$already_sticker_deducted) {
             wc_deduct_order_sticker($db);
             $sticker_deducted = 1;
@@ -2070,7 +2070,7 @@ if ($action === 'delete_order') {
 }
 
 // Refresh all order + line-item data from WooCommerce's own order history.
-// Data only — never touches parts.current_stock (inventory has moved on since
+// Data only, never touches parts.current_stock (inventory has moved on since
 // these orders were placed; this is for accurate reporting, not re-deduction).
 if ($action === 'wc_reconcile_orders') {
     require_once 'woocommerce_sync.php';
@@ -2112,7 +2112,7 @@ if ($action === 'send_invoice') {
     $stmt->execute([$order_id]);
     $order['items'] = $stmt->fetchAll();
 
-    $subject = "Invoice: " . $order['order_number'] . " — KI6CR Ham Radio Kits";
+    $subject = "Invoice: " . $order['order_number'] . ", KI6CR Ham Radio Kits";
 
     // Build HTML invoice for email
     ob_start();
@@ -2127,7 +2127,7 @@ if ($action === 'send_invoice') {
     $sent = mail($order['customer_email'], $subject, $html, $headers);
     jsonResponse($sent
         ? ['success' => true, 'message' => "Invoice sent to " . $order['customer_email']]
-        : ['error' => 'mail() failed — check server mail config.']
+        : ['error' => 'mail() failed, check server mail config.']
     );
 }
 
@@ -2214,6 +2214,46 @@ if ($action === 'change_password') {
 }
 
 // ── KH1 Beta Feedback Admin ───────────────────────────────────────────────────
+
+if ($action === 'kh1_build_report_add') {
+    // Manual entry for builders who finished but never submitted the manual's form.
+    $csvPath = '/home/chrisr069/kh1-build-reports.csv';
+    $levels = ['Very easy', 'Easy', 'Moderate', 'Difficult', 'Very difficult'];
+    $callsign = strtoupper(preg_replace('/[^A-Za-z0-9\/]/', '', $_POST['callsign'] ?? ''));
+    $how = $_POST['how'] ?? '';
+    $date = $_POST['date'] ?? '';
+    if ($callsign === '') jsonResponse(['error' => 'Callsign is required'], 400);
+    if (!in_array($how, $levels, true)) jsonResponse(['error' => 'Pick how it went'], 400);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !strtotime($date)) $date = date('Y-m-d');
+    $ts = $date . ' ' . ($date === date('Y-m-d') ? date('H:i:s') : '12:00:00');
+    $fh = @fopen($csvPath, 'a');
+    if (!$fh) jsonResponse(['error' => 'Could not write the reports file'], 500);
+    flock($fh, LOCK_EX);
+    fputcsv($fh, [$ts, $callsign, $how], ',', '"', '');
+    flock($fh, LOCK_UN);
+    fclose($fh);
+    jsonResponse(['success' => true]);
+}
+
+if ($action === 'kh1_build_reports') {
+    // CSV lives outside the web root; rows appended by the KH1 manual's "I finished my build" form.
+    // No header row. Columns: timestamp, callsign, how it went.
+    $csvPath = '/home/chrisr069/kh1-build-reports.csv';
+    $levels = ['Very easy', 'Easy', 'Moderate', 'Difficult', 'Very difficult'];
+    $counts = array_fill_keys($levels, 0);
+    $reports = [];
+    if (is_readable($csvPath) && ($fh = fopen($csvPath, 'r'))) {
+        while (($row = fgetcsv($fh, 0, ',', '"', '')) !== false) {
+            if (count($row) < 3 || trim($row[0]) === '') continue;
+            $how = trim($row[2]);
+            $reports[] = ['timestamp' => trim($row[0]), 'callsign' => trim($row[1]), 'how' => $how];
+            if (isset($counts[$how])) $counts[$how]++;
+        }
+        fclose($fh);
+    }
+    usort($reports, fn($a, $b) => strcmp($b['timestamp'], $a['timestamp']));
+    jsonResponse(['total' => count($reports), 'counts' => $counts, 'reports' => $reports]);
+}
 
 if ($action === 'kh1_beta_list') {
     $builders = $db->query("
@@ -2333,6 +2373,231 @@ if ($action === 'kh1_beta_mark_all_reviewed') {
     ");
     $stmt->execute([$callsign]);
     jsonResponse(['success' => true, 'marked' => $stmt->rowCount()]);
+}
+
+// ─── Order Issues (shipped but not delivered, carrier claims) ─────────────────
+if (str_starts_with($action, 'issue_')) {
+    require_once 'order_issues_lib.php';
+    require_once 'woocommerce_sync.php';
+
+    $trackingRowsFor = function (array $issueIds) use ($db): array {
+        if (!$issueIds) return [];
+        $in = implode(',', array_fill(0, count($issueIds), '?'));
+        $stmt = $db->prepare("SELECT * FROM order_issue_tracking WHERE issue_id IN ($in) ORDER BY created_at, id");
+        $stmt->execute($issueIds);
+        $by = [];
+        foreach ($stmt->fetchAll() as $t) {
+            $t['history'] = $t['history'] ? json_decode($t['history'], true) : [];
+            $t['track_page_url'] = oi_track_url($t['carrier'], $t['tracking_number']);
+            $by[$t['issue_id']][] = $t;
+        }
+        return $by;
+    };
+
+    // Find the order by number and pull its tracking number(s) from the tracker and from Shippo.
+    if ($action === 'issue_lookup_order') {
+        $num = trim($_GET['order_number'] ?? '');
+        $num = preg_replace('/^#/', '', $num);
+        if ($num === '') jsonResponse(['error' => 'Enter an order number'], 400);
+
+        $stmt = $db->prepare("SELECT * FROM orders WHERE wc_display_number = ? OR order_number = ? OR order_number = ? ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$num, $num, 'WC-' . $num]);
+        $order = $stmt->fetch();
+        if (!$order) jsonResponse(['error' => "No order found for \"$num\" in the tracker"], 404);
+
+        $stmt = $db->prepare("
+            SELECT oi.quantity, oi.line_total, oi.variation_combo_key, p.project_name
+            FROM order_items oi LEFT JOIN projects p ON p.id = oi.project_id
+            WHERE oi.order_id = ? ORDER BY oi.id
+        ");
+        $stmt->execute([$order['id']]);
+        $order['items'] = $stmt->fetchAll();
+        $order['items_total'] = array_sum(array_map(fn($i) => (float) $i['line_total'], $order['items']));
+        $order['display_number'] = $order['wc_display_number'] ?: $order['order_number'];
+
+        $trackings = [];
+        if (!empty($order['tracking_number'])) {
+            $carrier = oi_guess_carrier($order['tracking_number']);
+            $trackings[$order['tracking_number']] = [
+                'tracking_number' => $order['tracking_number'],
+                'carrier'         => $carrier,
+                'tracking_url'    => $order['tracking_url'] ?: oi_track_url($carrier, $order['tracking_number']),
+                'source'          => 'tracker',
+            ];
+        }
+        $shippo = oi_find_shippo_tracking((string) $order['display_number'], $order['order_date']);
+        foreach ($shippo as $s) {
+            $s['source'] = 'shippo';
+            $trackings[$s['tracking_number']] = $s; // Shippo's carrier detection beats the guess
+        }
+
+        $stmt = $db->prepare("SELECT id, status, issue_type, opened_date FROM order_issues WHERE order_id = ? ORDER BY id DESC");
+        $stmt->execute([$order['id']]);
+
+        jsonResponse([
+            'order'           => $order,
+            'trackings'       => array_values($trackings),
+            'shippo_found'    => count($shippo),
+            'existing_issues' => $stmt->fetchAll(),
+        ]);
+    }
+
+    if ($action === 'issue_create') {
+        $order_id = (int) ($_POST['order_id'] ?? 0);
+        $type = $_POST['issue_type'] ?? 'not_delivered';
+        $desc = trim($_POST['description'] ?? '');
+        $trackings = json_decode($_POST['trackings'] ?? '[]', true) ?: [];
+        $stmt = $db->prepare("SELECT id FROM orders WHERE id = ?");
+        $stmt->execute([$order_id]);
+        if (!$stmt->fetch()) jsonResponse(['error' => 'Order not found'], 404);
+
+        $db->prepare("INSERT INTO order_issues (order_id, issue_type, description, opened_date) VALUES (?, ?, ?, CURDATE())")
+           ->execute([$order_id, $type, $desc !== '' ? $desc : null]);
+        $issue_id = (int) $db->lastInsertId();
+
+        foreach ($trackings as $t) {
+            $tn = trim($t['tracking_number'] ?? '');
+            if ($tn === '') continue;
+            $carrier = oi_carrier_token($t['carrier'] ?? oi_guess_carrier($tn));
+            $db->prepare("INSERT IGNORE INTO order_issue_tracking (issue_id, tracking_number, carrier, tracking_url, kind) VALUES (?, ?, ?, ?, 'original')")
+               ->execute([$issue_id, $tn, $carrier, $t['tracking_url'] ?? oi_track_url($carrier, $tn)]);
+            oi_refresh_tracking_row($db, (int) $db->lastInsertId());
+        }
+        jsonResponse(['success' => true, 'id' => $issue_id]);
+    }
+
+    if ($action === 'issue_list') {
+        $issues = $db->query("
+            SELECT i.*, o.order_number, o.wc_display_number, o.customer_name, o.customer_callsign, o.order_date,
+                   o.ship_city, o.ship_state, o.shipping_charge,
+                   (SELECT SUM(oi.line_total) FROM order_items oi WHERE oi.order_id = o.id) AS items_total,
+                   (SELECT GROUP_CONCAT(CONCAT(p.project_name, ' x', oi.quantity) SEPARATOR ', ')
+                      FROM order_items oi LEFT JOIN projects p ON p.id = oi.project_id WHERE oi.order_id = o.id) AS items_summary
+            FROM order_issues i JOIN orders o ON o.id = i.order_id
+            ORDER BY (i.status = 'open') DESC, i.opened_date DESC, i.id DESC
+        ")->fetchAll();
+        $by = $trackingRowsFor(array_map(fn($i) => (int) $i['id'], $issues));
+        foreach ($issues as &$i) {
+            $i['display_number'] = $i['wc_display_number'] ?: $i['order_number'];
+            $i['trackings'] = $by[$i['id']] ?? [];
+        }
+        unset($i);
+        jsonResponse($issues);
+    }
+
+    if ($action === 'issue_update') {
+        $id = (int) ($_POST['id'] ?? 0);
+        $allowed = ['issue_type', 'status', 'description', 'resolution', 'resolution_note', 'resolved_date',
+                    'claim_status', 'claim_number', 'claim_filed_date', 'claim_amount', 'claim_paid_amount',
+                    'claim_paid_date', 'claim_notes'];
+        $sets = []; $vals = [];
+        foreach ($allowed as $f) {
+            if (!array_key_exists($f, $_POST)) continue;
+            $v = is_string($_POST[$f]) ? trim($_POST[$f]) : $_POST[$f];
+            $sets[] = "$f = ?";
+            $vals[] = ($v === '' ? null : $v);
+        }
+        // Closing stamps today's date; reopening clears it.
+        if (($_POST['status'] ?? '') === 'resolved' && !isset($_POST['resolved_date'])) { $sets[] = 'resolved_date = COALESCE(resolved_date, CURDATE())'; }
+        if (($_POST['status'] ?? '') === 'open') { $sets[] = 'resolved_date = NULL'; }
+        if (!$sets) jsonResponse(['error' => 'Nothing to update'], 400);
+        $vals[] = $id;
+        $db->prepare("UPDATE order_issues SET " . implode(', ', $sets) . " WHERE id = ?")->execute($vals);
+        jsonResponse(['success' => true]);
+    }
+
+    if ($action === 'issue_delete') {
+        $id = (int) ($_POST['id'] ?? 0);
+        $db->prepare("DELETE FROM order_issue_tracking WHERE issue_id = ?")->execute([$id]);
+        $db->prepare("DELETE FROM order_issues WHERE id = ?")->execute([$id]);
+        jsonResponse(['success' => true]);
+    }
+
+    // Revised/new tracking numbers (kind: revised = carrier re-labeled it, replacement = we reshipped).
+    if ($action === 'issue_add_tracking') {
+        $issue_id = (int) ($_POST['issue_id'] ?? 0);
+        $tn = preg_replace('/\s+/', '', trim($_POST['tracking_number'] ?? ''));
+        $kind = in_array($_POST['kind'] ?? '', ['original', 'revised', 'replacement'], true) ? $_POST['kind'] : 'revised';
+        if ($tn === '') jsonResponse(['error' => 'Tracking number is required'], 400);
+        $carrier = oi_carrier_token(($_POST['carrier'] ?? '') ?: oi_guess_carrier($tn));
+        $note = trim($_POST['note'] ?? '');
+        try {
+            $db->prepare("INSERT INTO order_issue_tracking (issue_id, tracking_number, carrier, tracking_url, kind, note) VALUES (?, ?, ?, ?, ?, ?)")
+               ->execute([$issue_id, $tn, $carrier, oi_track_url($carrier, $tn), $kind, $note !== '' ? $note : null]);
+        } catch (PDOException $e) {
+            jsonResponse(['error' => 'That tracking number is already on this issue'], 409);
+        }
+        $tid = (int) $db->lastInsertId();
+        $row = oi_refresh_tracking_row($db, $tid);
+        $deducted = $kind === 'replacement' ? oi_deduct_replacement($db, $tid) : [];
+        jsonResponse(['success' => true, 'tracking' => $row, 'deducted' => $deducted]);
+    }
+
+    if ($action === 'issue_delete_tracking') {
+        $tid = (int) ($_POST['id'] ?? 0);
+        oi_restore_replacement($db, $tid); // puts back stock if this label had deducted it
+        $db->prepare("DELETE FROM order_issue_tracking WHERE id = ?")->execute([$tid]);
+        jsonResponse(['success' => true]);
+    }
+
+    // Look in Shippo for labels on this order that the issue doesn't know about yet. Each new
+    // one is a replacement shipment: track it and deduct the whole order's stock again.
+    if ($action === 'issue_find_labels') {
+        $id = (int) ($_POST['id'] ?? $_GET['id'] ?? 0);
+        $stmt = $db->prepare("
+            SELECT i.id, o.wc_display_number, o.order_number, o.order_date
+            FROM order_issues i JOIN orders o ON o.id = i.order_id WHERE i.id = ?
+        ");
+        $stmt->execute([$id]);
+        $issue = $stmt->fetch();
+        if (!$issue) jsonResponse(['error' => 'Issue not found'], 404);
+
+        $known = $db->prepare("SELECT tracking_number FROM order_issue_tracking WHERE issue_id = ?");
+        $known->execute([$id]);
+        $known = $known->fetchAll(PDO::FETCH_COLUMN);
+        $had_none = count($known) === 0;
+
+        $labels = oi_find_shippo_tracking((string) ($issue['wc_display_number'] ?: $issue['order_number']), $issue['order_date']);
+        $added = [];
+        foreach ($labels as $n => $l) {
+            if (in_array($l['tracking_number'], $known, true)) continue;
+            // With nothing on file yet, the first label found is the original, not a replacement.
+            $kind = ($had_none && $n === 0) ? 'original' : 'replacement';
+            $db->prepare("INSERT IGNORE INTO order_issue_tracking (issue_id, tracking_number, carrier, tracking_url, kind) VALUES (?, ?, ?, ?, ?)")
+               ->execute([$id, $l['tracking_number'], $l['carrier'], $l['tracking_url'], $kind]);
+            $tid = (int) $db->lastInsertId();
+            if (!$tid) continue;
+            oi_refresh_tracking_row($db, $tid);
+            $added[] = [
+                'tracking_number' => $l['tracking_number'], 'kind' => $kind,
+                'deducted' => $kind === 'replacement' ? oi_deduct_replacement($db, $tid) : [],
+            ];
+        }
+
+        // Also bring the existing labels' statuses up to date.
+        $rows = $db->prepare("SELECT id FROM order_issue_tracking WHERE issue_id = ? AND (tracking_status IS NULL OR tracking_status <> 'DELIVERED')");
+        $rows->execute([$id]);
+        foreach ($rows->fetchAll(PDO::FETCH_COLUMN) as $tid) oi_refresh_tracking_row($db, (int) $tid);
+
+        jsonResponse(['success' => true, 'added' => $added, 'shippo_labels' => count($labels)]);
+    }
+
+    // Refresh one tracking row, or every not-yet-delivered row on open issues (id = 'all').
+    if ($action === 'issue_refresh') {
+        $id = $_POST['id'] ?? $_GET['id'] ?? '';
+        if ($id === 'all') {
+            $ids = $db->query("
+                SELECT t.id FROM order_issue_tracking t JOIN order_issues i ON i.id = t.issue_id
+                WHERE i.status = 'open' AND (t.tracking_status IS NULL OR t.tracking_status <> 'DELIVERED')
+                ORDER BY t.last_checked_at IS NULL DESC, t.last_checked_at ASC LIMIT 25
+            ")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($ids as $tid) oi_refresh_tracking_row($db, (int) $tid);
+            jsonResponse(['success' => true, 'refreshed' => count($ids)]);
+        }
+        $row = oi_refresh_tracking_row($db, (int) $id);
+        if (!$row) jsonResponse(['error' => 'Tracking row not found'], 404);
+        jsonResponse(['success' => true]);
+    }
 }
 
 jsonResponse(['error' => 'Invalid action'], 400);

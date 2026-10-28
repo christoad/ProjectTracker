@@ -741,7 +741,7 @@
             }
 
             /* Tables: enforce minimum widths so columns stay readable;
-               containers already have overflow-x:auto — this makes them scroll */
+               containers already have overflow-x:auto, this makes them scroll */
             .table-container {
                 -webkit-overflow-scrolling: touch;
             }
@@ -1027,6 +1027,7 @@
             <button class="nav-tab" onclick="showSection('projects')">Projects</button>
             <button class="nav-tab" onclick="showSection('parts')">Parts Inventory</button>
             <button class="nav-tab" onclick="showSection('orders')">Orders</button>
+            <button class="nav-tab" onclick="showSection('order-issues')">Order Issues</button>
             <button class="nav-tab" onclick="showSection('business')">📊 Business</button>
             <button class="nav-tab" onclick="showSection('tasks')">Tasks</button>
             <button class="nav-tab" onclick="showSection('settings')">Settings</button>
@@ -1462,6 +1463,39 @@
                 </div>
             </section>
 
+            <!-- Order Issues Section -->
+            <section id="order-issues" class="section">
+                <div class="card">
+                    <div class="card-header" style="flex-wrap:wrap;gap:8px;">
+                        <h2 class="card-title">Order Issues</h2>
+                        <div class="flex flex-gap" style="flex-wrap:wrap;align-items:center;">
+                            <input type="text" id="oiOrderInput" class="form-input" style="width:180px;" placeholder="Order # (e.g. 4200058)" onkeydown="if(event.key==='Enter')oiLookup()">
+                            <button class="btn btn-primary" id="oiLookupBtn" onclick="oiLookup()">Look Up Order</button>
+                            <button class="btn" id="oiRefreshBtn" onclick="oiRefreshAll()">Refresh Tracking</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="oiSummary" style="display:flex;gap:1.5rem;flex-wrap:wrap;font-size:0.85rem;margin-bottom:12px;"></div>
+                        <div style="margin-bottom:10px;">
+                            <select id="oiFilter" class="form-select" style="width:auto;" onchange="oiRender()">
+                                <option value="open">Open issues</option>
+                                <option value="claims">Claims awaiting refund</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="all">All</option>
+                            </select>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table" id="oiTable">
+                                <thead><tr>
+                                    <th>Order #</th><th>Customer</th><th>Value</th><th>Tracking</th><th>Claim</th><th>Opened</th><th>Actions</th>
+                                </tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Beta Feedback Section -->
             <section id="beta-feedback" class="section">
                 <div class="card" style="margin-bottom:16px;">
@@ -1476,6 +1510,32 @@
                         <div id="betaSummaryCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px;"></div>
                         <div id="betaPackagingAlert" style="display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;font-size:0.84rem;color:#991b1b;margin-bottom:10px;"></div>
                         <div id="betaStepIssues" style="display:none;margin-bottom:10px;"></div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header">
+                        <h2 class="card-title">Build Reports</h2>
+                        <button class="btn btn-secondary" style="font-size:0.9rem;padding:2px 12px;font-weight:600;" title="Add a report manually" onclick="toggleBuildReportForm()">+</button>
+                    </div>
+                    <div style="padding:0 1rem 1rem;">
+                        <div id="buildReportForm" style="display:none;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+                            <input type="text" id="brCallsign" class="form-input" placeholder="Callsign" style="width:130px;font-family:var(--font-mono);text-transform:uppercase;">
+                            <select id="brHow" class="form-input">
+                                <option value="Very easy">Very easy</option><option value="Easy">Easy</option><option value="Moderate" selected>Moderate</option><option value="Difficult">Difficult</option><option value="Very difficult">Very difficult</option>
+                            </select>
+                            <input type="date" id="brDate" class="form-input">
+                            <button class="btn btn-primary" onclick="addBuildReport()">Add Report</button>
+                        </div>
+                        <div id="buildReportsSummary" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
+                        <div style="overflow-x:auto;">
+                            <table class="data-table">
+                                <thead><tr><th>Date</th><th>Callsign</th><th>How It Went</th></tr></thead>
+                                <tbody id="buildReportsBody">
+                                    <tr><td colspan="3" style="text-align:center;padding:2rem;color:var(--text-dim);">Loading…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -1627,6 +1687,288 @@
         }
 
         // Navigation
+
+        // ─── Order Issues ───────────────────────────────────────────────────
+        let oiIssues = [];
+        const OI_TYPES = { not_delivered: 'Not delivered', damaged: 'Damaged', wrong_item: 'Wrong or missing item', other: 'Other' };
+        const OI_CLAIM = { none: 'No claim', to_file: 'Need to file', filed: 'Filed', approved: 'Approved', denied: 'Denied', paid: 'Refunded' };
+        const OI_CLAIM_COLOR = { none: 'secondary', to_file: 'warning', filed: 'info', approved: 'info', denied: 'danger', paid: 'success' };
+        const OI_TRACK_COLOR = { DELIVERED: 'success', TRANSIT: 'info', PRE_TRANSIT: 'secondary', RETURNED: 'danger', FAILURE: 'danger', UNKNOWN: 'warning' };
+        const OI_KIND = { original: 'Original', revised: 'Revised', replacement: 'Replacement' };
+
+        const oiMoney = v => v === null || v === undefined || v === '' ? '' : '$' + parseFloat(v).toFixed(2);
+        const oiDate = d => d ? String(d).slice(0, 10) : '';
+
+        async function oiPost(action, data) {
+            const fd = new FormData();
+            fd.append('action', action);
+            Object.entries(data).forEach(([k, v]) => fd.append(k, v ?? ''));
+            const r = await fetch('api.php', { method: 'POST', body: fd });
+            const j = await r.json();
+            if (j.error) throw new Error(j.error);
+            return j;
+        }
+
+        async function oiLoad(refreshLive = false) {
+            try {
+                const r = await fetch('api.php?action=issue_list');
+                oiIssues = await r.json();
+                oiRender();
+                if (refreshLive) oiRefreshAll(true);
+            } catch (e) { console.error('Error loading order issues:', e); }
+        }
+
+        function oiTrackingBadge(t) {
+            const st = t.tracking_status || 'UNKNOWN';
+            const label = st === 'DELIVERED' ? 'Delivered ' + oiDate(t.delivered_at) : st.replace('_', ' ').toLowerCase().replace(/^./, c => c.toUpperCase());
+            return `<span class="badge badge-${OI_TRACK_COLOR[st] || 'secondary'}">${escHtml(label)}</span>`;
+        }
+
+        function oiRender() {
+            const f = document.getElementById('oiFilter').value;
+            const open = oiIssues.filter(i => i.status === 'open');
+            const awaiting = oiIssues.filter(i => ['filed', 'approved', 'to_file'].includes(i.claim_status) && i.status !== 'deleted');
+            const claimed = oiIssues.reduce((s, i) => s + (['filed', 'approved', 'paid'].includes(i.claim_status) ? parseFloat(i.claim_amount || 0) : 0), 0);
+            const refunded = oiIssues.reduce((s, i) => s + parseFloat(i.claim_paid_amount || 0), 0);
+            document.getElementById('oiSummary').innerHTML =
+                `<span><b>${open.length}</b> open</span><span><b>${awaiting.length}</b> claims in progress</span>` +
+                `<span>Claimed: <b>${oiMoney(claimed) || '$0.00'}</b></span><span>Refunded by carriers: <b style="color:var(--success);">${oiMoney(refunded) || '$0.00'}</b></span>`;
+
+            let rows = oiIssues;
+            if (f === 'open') rows = open;
+            else if (f === 'resolved') rows = oiIssues.filter(i => i.status === 'resolved');
+            else if (f === 'claims') rows = awaiting;
+
+            const tbody = document.querySelector('#oiTable tbody');
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:1.5rem;">Nothing here. Look up an order number above to report an issue.</td></tr>'; return; }
+            tbody.innerHTML = rows.map(i => {
+                const value = parseFloat(i.items_total || 0) + parseFloat(i.shipping_charge || 0);
+                const trk = i.trackings.length ? i.trackings.map(t =>
+                    `<div style="margin-bottom:3px;white-space:nowrap;">${oiTrackingBadge(t)} <span style="font-family:var(--font-mono);font-size:0.72rem;">${escHtml(t.tracking_number)}</span> <a href="${escHtml(t.track_page_url)}" target="_blank" rel="noopener" class="btn btn-small">Track</a></div>`
+                ).join('') : '<span style="color:var(--text-dim);">None yet</span>';
+                let claim = `<span class="badge badge-${OI_CLAIM_COLOR[i.claim_status] || 'secondary'}">${OI_CLAIM[i.claim_status] || i.claim_status}</span>`;
+                if (i.claim_status === 'paid') claim += ` <span style="font-size:0.75rem;">${oiMoney(i.claim_paid_amount)}</span>`;
+                else if (i.claim_amount) claim += ` <span style="font-size:0.75rem;color:var(--text-secondary);">${oiMoney(i.claim_amount)}</span>`;
+                return `<tr>
+                    <td><a href="order_detail.php?id=${i.order_id}" style="color:var(--accent-primary);font-weight:bold;text-decoration:none;">${escHtml(i.display_number)}</a><div style="font-size:0.72rem;color:var(--text-secondary);">${escHtml(OI_TYPES[i.issue_type] || i.issue_type)}${i.status === 'resolved' ? ' (resolved)' : ''}</div></td>
+                    <td>${escHtml(i.customer_name || '')}<div style="font-size:0.72rem;color:var(--text-secondary);">${escHtml(i.items_summary || '')}</div></td>
+                    <td>${oiMoney(value)}</td>
+                    <td>${trk}</td>
+                    <td>${claim}</td>
+                    <td>${oiDate(i.opened_date)}</td>
+                    <td style="white-space:nowrap;"><button class="btn btn-small" onclick="oiOpenIssue(${i.id})">Open</button>
+                        ${i.status === 'open' ? `<button class="btn btn-small" title="Look in Shippo for a replacement label" onclick="oiFindLabels(${i.id}, this)">Refresh</button>` : ''}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function oiRefreshAll(quiet = false) {
+            const btn = document.getElementById('oiRefreshBtn');
+            if (!quiet) { btn.disabled = true; btn.textContent = 'Checking Shippo...'; }
+            try {
+                const r = await fetch('api.php?action=issue_refresh&id=all');
+                const j = await r.json();
+                if (j.refreshed) {
+                    const r2 = await fetch('api.php?action=issue_list');
+                    oiIssues = await r2.json();
+                    oiRender();
+                }
+            } catch (e) { console.error(e); }
+            btn.disabled = false; btn.textContent = 'Refresh Tracking';
+        }
+
+        async function oiLookup() {
+            const num = document.getElementById('oiOrderInput').value.trim();
+            if (!num) return;
+            const btn = document.getElementById('oiLookupBtn');
+            btn.disabled = true; btn.textContent = 'Looking up...';
+            try {
+                const r = await fetch('api.php?action=issue_lookup_order&order_number=' + encodeURIComponent(num));
+                const j = await r.json();
+                if (j.error) { alert(j.error); return; }
+                oiShowNewIssue(j);
+            } catch (e) { alert('Lookup failed: ' + e.message); }
+            finally { btn.disabled = false; btn.textContent = 'Look Up Order'; }
+        }
+
+        function oiOrderSummaryHtml(o) {
+            const addr = [o.ship_street, o.ship_city, o.ship_state, o.ship_zip].filter(Boolean).join(', ') || o.shipping_address || '';
+            const items = (o.items || []).map(i => `${escHtml(i.project_name || 'Item')} x${i.quantity} (${oiMoney(i.line_total)})`).join('<br>');
+            return `<div style="background:var(--bg-card-header);border:1px solid var(--border-card);border-radius:var(--radius-card);padding:10px 12px;font-size:0.85rem;margin-bottom:12px;">
+                <div><b>${escHtml(o.display_number)}</b> &middot; ${escHtml(o.customer_name || '')}${o.customer_callsign ? ' (' + escHtml(o.customer_callsign) + ')' : ''} &middot; ordered ${oiDate(o.order_date)} &middot; status <b>${escHtml(o.status)}</b>${o.shipped_at ? ', shipped ' + oiDate(o.shipped_at) : ''}</div>
+                <div style="color:var(--text-secondary);margin:3px 0;">${escHtml(addr)}</div>
+                <div>${items}</div>
+                <div style="margin-top:3px;">Items ${oiMoney(o.items_total)} + shipping ${oiMoney(o.shipping_charge || 0)} = <b>${oiMoney(parseFloat(o.items_total || 0) + parseFloat(o.shipping_charge || 0))}</b></div>
+            </div>`;
+        }
+
+        function oiShowNewIssue(d) {
+            const o = d.order;
+            const existing = d.existing_issues.filter(i => i.status === 'open');
+            const trackHtml = d.trackings.length ? d.trackings.map((t, idx) =>
+                `<label style="display:flex;gap:8px;align-items:center;margin-bottom:4px;"><input type="checkbox" class="oiNewTrk" data-idx="${idx}" checked>
+                 <span style="font-family:var(--font-mono);font-size:0.8rem;">${escHtml(t.tracking_number)}</span> <span style="font-size:0.75rem;color:var(--text-secondary);">${escHtml(t.carrier.toUpperCase())}, from ${t.source}</span>
+                 <a href="${escHtml(t.tracking_url)}" target="_blank" rel="noopener" class="btn btn-small">Track</a></label>`
+            ).join('') : '<p style="color:var(--text-secondary);font-size:0.85rem;margin:0;">No tracking number found in the tracker or Shippo. You can add one after creating the issue.</p>';
+            const modal = createModal('Report Order Issue', `
+                ${oiOrderSummaryHtml(o)}
+                ${existing.length ? `<p style="background:rgba(245,158,11,0.13);padding:8px 10px;border-radius:4px;font-size:0.85rem;">This order already has an open issue. <a href="#" onclick="event.preventDefault();this.closest('.modal').remove();oiOpenIssue(${existing[0].id})">Open it instead</a></p>` : ''}
+                <div class="form-group"><label class="form-label">Tracking found (${d.shippo_found} from Shippo)</label>${trackHtml}</div>
+                <div class="form-group"><label class="form-label">What went wrong</label>
+                    <select id="oiNewType" class="form-select">${Object.entries(OI_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+                <div class="form-group"><label class="form-label">Notes (optional)</label>
+                    <textarea id="oiNewDesc" class="form-input" rows="3" placeholder="e.g. Customer says it never arrived, tracking stuck since 10/20"></textarea></div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:1rem;">
+                    <button type="button" class="btn" onclick="this.closest('.modal').remove()">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="oiCreateBtn">Create Issue</button>
+                </div>`);
+            modal.querySelector('#oiCreateBtn').onclick = async (e) => {
+                e.target.disabled = true; e.target.textContent = 'Creating...';
+                const picked = [...modal.querySelectorAll('.oiNewTrk:checked')].map(c => d.trackings[+c.dataset.idx]);
+                try {
+                    const j = await oiPost('issue_create', {
+                        order_id: o.id, issue_type: modal.querySelector('#oiNewType').value,
+                        description: modal.querySelector('#oiNewDesc').value, trackings: JSON.stringify(picked)
+                    });
+                    modal.remove();
+                    document.getElementById('oiOrderInput').value = '';
+                    document.getElementById('oiFilter').value = 'open';
+                    await oiLoad();
+                    oiOpenIssue(j.id);
+                } catch (err) { alert(err.message); e.target.disabled = false; e.target.textContent = 'Create Issue'; }
+            };
+        }
+
+        function oiOpenIssue(id) {
+            document.querySelectorAll('#modalContainer .oi-modal').forEach(m => m.remove());
+            const i = oiIssues.find(x => x.id == id);
+            if (!i) return;
+            const value = parseFloat(i.items_total || 0) + parseFloat(i.shipping_charge || 0);
+            const trkRows = i.trackings.map(t => {
+                const hist = (t.history || []).slice().reverse().slice(0, 6).map(h =>
+                    `<div style="font-size:0.72rem;color:var(--text-secondary);">${escHtml((h.date || '').slice(0, 16))} &middot; ${escHtml(h.details || h.status)}${h.place ? ' (' + escHtml(h.place) + ')' : ''}</div>`).join('');
+                return `<tr>
+                    <td><span class="badge badge-secondary">${OI_KIND[t.kind] || t.kind}</span></td>
+                    <td><span style="font-family:var(--font-mono);font-size:0.8rem;">${escHtml(t.tracking_number)}</span><div style="font-size:0.72rem;color:var(--text-secondary);">${escHtml(t.carrier.toUpperCase())}${t.note ? ' &middot; ' + escHtml(t.note) : ''}</div></td>
+                    <td>${oiTrackingBadge(t)}<div style="font-size:0.75rem;">${escHtml(t.status_detail || '')}</div>${t.eta && t.tracking_status !== 'DELIVERED' ? `<div style="font-size:0.72rem;color:var(--text-secondary);">ETA ${oiDate(t.eta)}</div>` : ''}${t.last_error ? `<div style="font-size:0.72rem;color:var(--danger);">${escHtml(t.last_error)}</div>` : ''}${hist}
+                        <div style="font-size:0.7rem;color:var(--text-dim);">Checked ${escHtml((t.last_checked_at || 'never').slice(0, 16))}</div></td>
+                    <td style="white-space:nowrap;"><a href="${escHtml(t.track_page_url)}" target="_blank" rel="noopener" class="btn btn-small btn-primary">Track</a>
+                        <button class="btn btn-small" onclick="oiRefreshOne(${t.id}, ${i.id}, this)">Refresh</button>
+                        <button class="btn btn-small btn-danger" onclick="oiDeleteTracking(${t.id}, ${i.id})">x</button></td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="4" style="color:var(--text-dim);">No tracking numbers yet.</td></tr>';
+
+            const sel = (opts, cur) => Object.entries(opts).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${v}</option>`).join('');
+            const modal = createModal(`Order ${escHtml(i.display_number)}: ${escHtml(OI_TYPES[i.issue_type] || i.issue_type)}`, `
+                <div style="background:var(--bg-card-header);border:1px solid var(--border-card);border-radius:var(--radius-card);padding:10px 12px;font-size:0.85rem;margin-bottom:12px;">
+                    <b>${escHtml(i.customer_name || '')}</b>${i.customer_callsign ? ' (' + escHtml(i.customer_callsign) + ')' : ''} &middot; ordered ${oiDate(i.order_date)} &middot; ${escHtml([i.ship_city, i.ship_state].filter(Boolean).join(', '))}
+                    <div>${escHtml(i.items_summary || '')}</div>
+                    <div>Value at stake (items + shipping): <b>${oiMoney(value)}</b> &middot; <a href="order_detail.php?id=${i.order_id}" style="color:var(--accent-primary);">Open order</a></div>
+                </div>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h4 style="margin:0;">Tracking</h4>
+                    <button class="btn btn-small" onclick="oiFindLabels(${i.id}, this, true)">Find replacement label in Shippo</button></div>
+                <div class="table-container"><table class="data-table"><thead><tr><th>Type</th><th>Number</th><th>Status</th><th></th></tr></thead><tbody>${trkRows}</tbody></table></div>
+                <div style="display:grid;grid-template-columns:1.4fr 0.8fr 0.8fr 1fr auto;gap:6px;margin:8px 0 14px;align-items:end;">
+                    <div><label class="form-label">New / revised tracking #</label><input type="text" id="oiTn" class="form-input"></div>
+                    <div><label class="form-label">Carrier</label><select id="oiCarrier" class="form-select"><option value="">Auto</option><option value="usps">USPS</option><option value="ups">UPS</option><option value="fedex">FedEx</option><option value="dhl_express">DHL</option></select></div>
+                    <div><label class="form-label">Type</label><select id="oiKind" class="form-select"><option value="revised">Revised</option><option value="replacement">Replacement (deducts stock)</option></select></div>
+                    <div><label class="form-label">Note</label><input type="text" id="oiTnNote" class="form-input" placeholder="optional"></div>
+                    <button class="btn btn-primary" onclick="oiAddTracking(${i.id}, this)">Add</button>
+                </div>
+
+                <h4 style="margin:0 0 6px;">Carrier claim</h4>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                    <div class="form-group"><label class="form-label">Claim status</label><select id="oiClaimStatus" class="form-select">${sel(OI_CLAIM, i.claim_status)}</select></div>
+                    <div class="form-group"><label class="form-label">Claim #</label><input type="text" id="oiClaimNo" class="form-input" value="${escHtml(i.claim_number || '')}"></div>
+                    <div class="form-group"><label class="form-label">Date filed</label><input type="date" id="oiClaimFiled" class="form-input" value="${oiDate(i.claim_filed_date)}"></div>
+                    <div class="form-group"><label class="form-label">Amount claimed ($)</label><input type="number" step="0.01" id="oiClaimAmt" class="form-input" value="${i.claim_amount ?? ''}" placeholder="${value.toFixed(2)}"></div>
+                    <div class="form-group"><label class="form-label">Refund received ($)</label><input type="number" step="0.01" id="oiPaidAmt" class="form-input" value="${i.claim_paid_amount ?? ''}"></div>
+                    <div class="form-group"><label class="form-label">Refund date</label><input type="date" id="oiPaidDate" class="form-input" value="${oiDate(i.claim_paid_date)}"></div>
+                </div>
+                <div class="form-group"><label class="form-label">Claim notes</label><textarea id="oiClaimNotes" class="form-input" rows="2">${escHtml(i.claim_notes || '')}</textarea></div>
+
+                <h4 style="margin:0 0 6px;">Issue</h4>
+                <div class="form-group"><label class="form-label">Notes</label><textarea id="oiDesc" class="form-input" rows="2">${escHtml(i.description || '')}</textarea></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div class="form-group"><label class="form-label">Status</label><select id="oiStatus" class="form-select">${sel({ open: 'Open', resolved: 'Resolved' }, i.status)}</select></div>
+                    <div class="form-group"><label class="form-label">How it ended</label><select id="oiResolution" class="form-select"><option value="">-</option>${sel({ delivered_late: 'Delivered late', reshipped: 'Reshipped to customer', refunded_customer: 'Refunded customer', other: 'Other' }, i.resolution)}</select></div>
+                </div>
+                <div class="form-group"><label class="form-label">Resolution notes</label><input type="text" id="oiResNote" class="form-input" value="${escHtml(i.resolution_note || '')}"></div>
+
+                <div style="display:flex;gap:8px;justify-content:space-between;margin-top:1rem;">
+                    <button type="button" class="btn btn-danger" onclick="oiDeleteIssue(${i.id})">Delete Issue</button>
+                    <div style="display:flex;gap:8px;"><button type="button" class="btn" onclick="this.closest('.modal').remove()">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="oiSaveIssue(${i.id}, this)">Save</button></div>
+                </div>`, null, true);
+            modal.classList.add('oi-modal');
+        }
+
+        async function oiSaveIssue(id, btn) {
+            const g = x => document.getElementById(x).value;
+            btn.disabled = true; btn.textContent = 'Saving...';
+            try {
+                await oiPost('issue_update', {
+                    id, status: g('oiStatus'), description: g('oiDesc'), resolution: g('oiResolution'), resolution_note: g('oiResNote'),
+                    claim_status: g('oiClaimStatus'), claim_number: g('oiClaimNo'), claim_filed_date: g('oiClaimFiled'),
+                    claim_amount: g('oiClaimAmt'), claim_paid_amount: g('oiPaidAmt'), claim_paid_date: g('oiPaidDate'), claim_notes: g('oiClaimNotes')
+                });
+                document.querySelectorAll('#modalContainer .oi-modal').forEach(m => m.remove());
+                await oiLoad();
+            } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = 'Save'; }
+        }
+
+        async function oiAddTracking(issueId, btn) {
+            const tn = document.getElementById('oiTn').value.trim();
+            if (!tn) return;
+            btn.disabled = true;
+            try {
+                const kind = document.getElementById('oiKind').value;
+                if (kind === 'replacement' && !confirm('A replacement shipment takes the whole order out of inventory again (all kits, parts and the sticker). Continue?')) { btn.disabled = false; return; }
+                const j = await oiPost('issue_add_tracking', { issue_id: issueId, tracking_number: tn, carrier: document.getElementById('oiCarrier').value,
+                    kind, note: document.getElementById('oiTnNote').value });
+                if (j.deducted && j.deducted.length) alert('Stock deducted again for: ' + j.deducted.join(', '));
+                await oiLoad(); oiOpenIssue(issueId);
+            } catch (e) { alert(e.message); btn.disabled = false; }
+        }
+
+        async function oiRefreshOne(trackingId, issueId, btn) {
+            btn.disabled = true; btn.textContent = '...';
+            try { await oiPost('issue_refresh', { id: trackingId }); } catch (e) { alert(e.message); }
+            await oiLoad(); oiOpenIssue(issueId);
+        }
+
+        async function oiFindLabels(issueId, btn, reopen = false) {
+            const label = btn.textContent;
+            btn.disabled = true; btn.textContent = 'Checking...';
+            try {
+                const j = await oiPost('issue_find_labels', { id: issueId });
+                if (j.added.length) {
+                    alert(j.added.map(a => `New ${a.kind} label ${a.tracking_number}` +
+                        (a.deducted.length ? `\nStock deducted again for: ${a.deducted.join(', ')}` : '')).join('\n\n'));
+                } else {
+                    alert(`No new labels found in Shippo (${j.shippo_labels} on this order). Tracking statuses were refreshed.`);
+                }
+            } catch (e) { alert(e.message); }
+            await oiLoad();
+            if (reopen) oiOpenIssue(issueId);
+            btn.disabled = false; btn.textContent = label;
+        }
+
+        async function oiDeleteTracking(trackingId, issueId) {
+            const t = (oiIssues.find(x => x.id == issueId) || { trackings: [] }).trackings.find(x => x.id == trackingId);
+            if (!confirm(t && +t.inventory_deducted ? 'Remove this tracking number? Its stock deduction will be put back into inventory.' : 'Remove this tracking number from the issue?')) return;
+            await oiPost('issue_delete_tracking', { id: trackingId });
+            await oiLoad(); oiOpenIssue(issueId);
+        }
+
+        async function oiDeleteIssue(id) {
+            if (!confirm('Delete this issue and its tracking and claim records?')) return;
+            await oiPost('issue_delete', { id });
+            document.querySelectorAll('#modalContainer .oi-modal').forEach(m => m.remove());
+            await oiLoad();
+        }
+
         function showSection(sectionId) {
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -1644,6 +1986,7 @@
             }
             if (sectionId === 'tasks') loadTasksSection();
             if (sectionId === 'beta-feedback') loadBetaFeedback();
+            if (sectionId === 'order-issues') oiLoad(true);
         }
 
         // Cost fields on parts orders accept pasted values like "$1,234.50": strip
@@ -1689,7 +2032,7 @@
                 partsOnOrderData = data.parts_on_order || [];
                 renderPartsOnOrder();
 
-                // Bottleneck insights — store data and render with current target
+                // Bottleneck insights, store data and render with current target
                 bottleneckInsightsData = data.bottleneck_insights || [];
                 if (!opts.keepExpanded) {
                     bottleneckExpandedProjects = new Set();
@@ -2458,7 +2801,7 @@
             }
         }
 
-        // WooCommerce sync buttons — routed through api.php to avoid content blocker false positives
+        // WooCommerce sync buttons, routed through api.php to avoid content blocker false positives
         const WC_WEBHOOK = 'api.php';
 
         function wcShowResult(html) {
@@ -4121,7 +4464,7 @@
         }
 
         function openAddFixedPartModal(projectId) {
-            // Exclude parts already in the BOM as fixed (variation_attribute='') — same part can still be added as a variable part
+            // Exclude parts already in the BOM as fixed (variation_attribute=''), same part can still be added as a variable part
             const fixedPartIds = new Set(
                 (window.currentProjectData?.parts || [])
                     .filter(p => !p.variation_attribute)
@@ -4637,7 +4980,7 @@
                     document.getElementById('partNumber').value = data.next_part_number;
                 }
             } catch (e) {
-                // leave the field blank if the fetch fails — user can type manually
+                // leave the field blank if the fetch fails, user can type manually
             }
         }
 
@@ -5805,7 +6148,7 @@
                     return;
                 }
 
-                // DB updated — close both the confirm modal and the part-detail modal behind it, then refresh
+                // DB updated, close both the confirm modal and the part-detail modal behind it, then refresh
                 document.querySelectorAll('.modal.active').forEach(m => m.remove());
                 viewPart(partId);
                 loadParts();
@@ -5846,8 +6189,8 @@
         }
 
         // Order Modal Functions
-        // Manual order entry (single item). Editing existing orders — including
-        // itemized WooCommerce orders — happens on order_detail.php instead.
+        // Manual order entry (single item). Editing existing orders, including
+        // itemized WooCommerce orders, happens on order_detail.php instead.
         async function openOrderModal() {
             if (!projects || projects.length === 0) {
                 await loadProjects();
@@ -6762,7 +7105,59 @@
         const RATING_LABEL = ['','👍 All Good','💬 Had Questions','⚠️ Had Trouble'];
         const RATING_COLOR = ['','#10b981','#f59e0b','#ef4444'];
 
+        const BUILD_LEVEL_COLOR = {'Very easy':'#10b981','Easy':'#34d399','Moderate':'#f59e0b','Difficult':'#f97316','Very difficult':'#ef4444'};
+
+        function toggleBuildReportForm() {
+            const f = document.getElementById('buildReportForm');
+            const show = f.style.display === 'none';
+            f.style.display = show ? 'flex' : 'none';
+            if (show) {
+                const d = new Date();
+                document.getElementById('brDate').value = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+                document.getElementById('brCallsign').focus();
+            }
+        }
+
+        async function addBuildReport() {
+            const fd = new FormData();
+            fd.append('action', 'kh1_build_report_add');
+            fd.append('callsign', document.getElementById('brCallsign').value);
+            fd.append('how', document.getElementById('brHow').value);
+            fd.append('date', document.getElementById('brDate').value);
+            const data = await (await fetch('api.php', {method:'POST', body:fd})).json();
+            if (data.error) { alert(data.error); return; }
+            document.getElementById('brCallsign').value = '';
+            document.getElementById('buildReportForm').style.display = 'none';
+            loadBuildReports();
+        }
+
+        async function loadBuildReports() {
+            const body = document.getElementById('buildReportsBody');
+            const sum  = document.getElementById('buildReportsSummary');
+            try {
+                const resp = await fetch('api.php?action=kh1_build_reports');
+                const data = await resp.json();
+                if (!data.total) {
+                    sum.innerHTML = '';
+                    body.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:2rem;color:var(--text-dim);">No reports yet</td></tr>';
+                    return;
+                }
+                const chip = (label, n, color) => `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:12px;font-size:0.8rem;background:${color}22;color:var(--text-primary);border:1px solid ${color};">${escHtml(label)} <strong style="font-family:var(--font-mono);">${n}</strong></span>`;
+                sum.innerHTML = chip('Total reports', data.total, '#1a56db') +
+                    Object.keys(BUILD_LEVEL_COLOR).map(k => chip(k, data.counts[k] || 0, BUILD_LEVEL_COLOR[k])).join('');
+                body.innerHTML = data.reports.map(r => `
+                    <tr>
+                        <td style="font-family:var(--font-mono);white-space:nowrap;">${escHtml(r.timestamp.split(' ')[0])}</td>
+                        <td style="font-family:var(--font-mono);">${escHtml(r.callsign)}</td>
+                        <td><span style="color:${BUILD_LEVEL_COLOR[r.how] || 'var(--text-secondary)'};font-weight:600;">${escHtml(r.how)}</span></td>
+                    </tr>`).join('');
+            } catch (e) {
+                body.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:2rem;color:var(--danger);">Could not load build reports</td></tr>';
+            }
+        }
+
         async function loadBetaFeedback() {
+            loadBuildReports();
             const resp = await fetch('api.php?action=kh1_beta_list');
             const data = await resp.json();
 
